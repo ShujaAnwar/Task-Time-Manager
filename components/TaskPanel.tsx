@@ -10,11 +10,12 @@ import {
   CheckCircle2,
   Play,
   Pause,
-  Square,
   RotateCcw,
   Timer,
-  AlertCircle,
-  Check
+  Check,
+  Edit3,
+  X,
+  Save
 } from 'lucide-react';
 import { DayLog, Task } from '../types';
 import { diffMinutes, formatMinutesToDisplay } from '../utils/time';
@@ -27,8 +28,6 @@ interface Props {
 }
 
 const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth }) => {
-  const [isAdding, setIsAdding] = useState(false);
-  const [entryMode, setEntryMode] = useState<'picker' | 'estimated'>('estimated');
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -36,7 +35,12 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
     endTime: '',
     estimated: '60'
   });
+  const [entryMode, setEntryMode] = useState<'picker' | 'estimated'>('estimated');
   
+  // State for inline editing
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editFormData, setEditFormData] = useState<Partial<Task>>({});
+
   // Local state to force re-render for live timers
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -69,10 +73,9 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
 
     onUpdate(prev => ({
       ...prev,
-      tasks: [...prev.tasks, newTask]
+      tasks: [newTask, ...prev.tasks] // Add to top for better visibility
     }));
 
-    setIsAdding(false);
     setFormData({ title: '', description: '', startTime: '', endTime: '', estimated: '60' });
   };
 
@@ -135,6 +138,35 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
     }));
   };
 
+  const cloneTask = (task: Task) => {
+    const cloned: Task = {
+      ...task,
+      id: Math.random().toString(36).substr(2, 9),
+      status: 'pending',
+      actualDuration: 0,
+      timerStartedAt: undefined,
+      createdAt: Date.now()
+    };
+    onUpdate(prev => ({
+      ...prev,
+      tasks: [cloned, ...prev.tasks]
+    }));
+  };
+
+  const startEditing = (task: Task) => {
+    setEditingTaskId(task.id);
+    setEditFormData({ ...task });
+  };
+
+  const saveEdit = () => {
+    if (!editingTaskId || !editFormData.title) return;
+    onUpdate(prev => ({
+      ...prev,
+      tasks: prev.tasks.map(t => t.id === editingTaskId ? { ...t, ...editFormData } : t)
+    }));
+    setEditingTaskId(null);
+  };
+
   const copyYesterdayTasks = () => {
     const dates = Object.keys(historicalLogs).sort();
     const yesterdayStr = dates[dates.length - 2];
@@ -166,111 +198,105 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
           </div>
           Active Workload
         </h3>
-        <div className="flex gap-2">
-           <button 
-            onClick={copyYesterdayTasks}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-white bg-slate-800/50 border border-slate-700/50 rounded-lg transition-colors"
-          >
-            <Copy size={14} /> Duplicate
-          </button>
-          <button 
-            onClick={() => setIsAdding(!isAdding)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors shadow-lg shadow-indigo-600/10"
-          >
-            {isAdding ? 'Cancel' : <><Plus size={14} /> New Task</>}
-          </button>
+        <button 
+          onClick={copyYesterdayTasks}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-white bg-slate-800/50 border border-slate-700/50 rounded-lg transition-colors"
+        >
+          <Copy size={14} /> Duplicate Yesterday
+        </button>
+      </div>
+
+      {/* Persistent Add New Task Form */}
+      <div className="mb-6 p-4 bg-slate-800/40 border border-indigo-500/20 rounded-2xl">
+        <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-[0.2em] mb-3">Assign New Task</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div className="space-y-4">
+            <input 
+              type="text" 
+              placeholder="Work Title *" 
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none"
+              value={formData.title}
+              onChange={e => setFormData({...formData, title: e.target.value})}
+            />
+            <textarea 
+              placeholder="Context or Notes (Optional)" 
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none h-20 resize-none"
+              value={formData.description}
+              onChange={e => setFormData({...formData, description: e.target.value})}
+            />
+          </div>
+          
+          <div className="space-y-4">
+            <div className="flex gap-2 p-1 bg-slate-950 rounded-lg border border-slate-800">
+              <button 
+                onClick={() => setEntryMode('estimated')}
+                className={`flex-1 py-1.5 text-[10px] uppercase tracking-wider font-bold rounded-md transition-all ${entryMode === 'estimated' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+              >
+                Estimation
+              </button>
+              <button 
+                onClick={() => setEntryMode('picker')}
+                className={`flex-1 py-1.5 text-[10px] uppercase tracking-wider font-bold rounded-md transition-all ${entryMode === 'picker' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+              >
+                Time Picker
+              </button>
+            </div>
+
+            {entryMode === 'estimated' ? (
+              <select 
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none"
+                value={formData.estimated}
+                onChange={e => setFormData({...formData, estimated: e.target.value})}
+              >
+                <option value="15">15 min</option>
+                <option value="30">30 min</option>
+                <option value="60">1 hour</option>
+                <option value="120">2 hours</option>
+                <option value="240">4 hours</option>
+              </select>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="text-[10px] text-slate-500 uppercase ml-1">Est. Start</label>
+                  <input 
+                    type="time" 
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:ring-1 focus:ring-indigo-500 outline-none"
+                    value={formData.startTime}
+                    onChange={e => setFormData({...formData, startTime: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-slate-500 uppercase ml-1">Est. End</label>
+                  <input 
+                    type="time" 
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:ring-1 focus:ring-indigo-500 outline-none"
+                    value={formData.endTime}
+                    onChange={e => setFormData({...formData, endTime: e.target.value})}
+                  />
+                </div>
+              </div>
+            )}
+            <button 
+              onClick={addTask}
+              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold transition-all shadow-lg shadow-indigo-600/10 active:scale-[0.98]"
+            >
+              Assign Task
+            </button>
+          </div>
         </div>
       </div>
 
-      {isAdding && (
-        <div className="mb-6 p-4 bg-slate-800/40 border border-slate-700/50 rounded-2xl animate-in fade-in slide-in-from-top-4 duration-300">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div className="space-y-4">
-              <input 
-                type="text" 
-                placeholder="Work Title *" 
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none"
-                value={formData.title}
-                onChange={e => setFormData({...formData, title: e.target.value})}
-              />
-              <textarea 
-                placeholder="Context or Notes (Optional)" 
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none h-20 resize-none"
-                value={formData.description}
-                onChange={e => setFormData({...formData, description: e.target.value})}
-              />
-            </div>
-            
-            <div className="space-y-4">
-              <div className="flex gap-2 p-1 bg-slate-950 rounded-lg border border-slate-800">
-                <button 
-                  onClick={() => setEntryMode('estimated')}
-                  className={`flex-1 py-1.5 text-[10px] uppercase tracking-wider font-bold rounded-md transition-all ${entryMode === 'estimated' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
-                >
-                  Estimation
-                </button>
-                <button 
-                  onClick={() => setEntryMode('picker')}
-                  className={`flex-1 py-1.5 text-[10px] uppercase tracking-wider font-bold rounded-md transition-all ${entryMode === 'picker' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
-                >
-                  Time Picker
-                </button>
-              </div>
-
-              {entryMode === 'estimated' ? (
-                <select 
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none"
-                  value={formData.estimated}
-                  onChange={e => setFormData({...formData, estimated: e.target.value})}
-                >
-                  <option value="15">15 min</option>
-                  <option value="30">30 min</option>
-                  <option value="60">1 hour</option>
-                  <option value="120">2 hours</option>
-                  <option value="240">4 hours</option>
-                </select>
-              ) : (
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1">
-                    <label className="text-[10px] text-slate-500 uppercase ml-1">Est. Start</label>
-                    <input 
-                      type="time" 
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:ring-1 focus:ring-indigo-500 outline-none"
-                      value={formData.startTime}
-                      onChange={e => setFormData({...formData, startTime: e.target.value})}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] text-slate-500 uppercase ml-1">Est. End</label>
-                    <input 
-                      type="time" 
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:ring-1 focus:ring-indigo-500 outline-none"
-                      value={formData.endTime}
-                      onChange={e => setFormData({...formData, endTime: e.target.value})}
-                    />
-                  </div>
-                </div>
-              )}
-              <button 
-                onClick={addTask}
-                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold transition-all shadow-lg shadow-indigo-600/10 active:scale-[0.98]"
-              >
-                Assign Task
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
+      {/* Task List */}
       <div className="flex-1 overflow-y-auto min-h-[400px] space-y-3 pr-1">
         {log.tasks.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full py-12 text-slate-600">
             <Layers size={48} className="mb-4 opacity-20" />
             <p className="text-sm">No tasks assigned for today.</p>
-            <p className="text-xs">Add a task to start tracking your incurred time.</p>
+            <p className="text-xs">Use the form above to assign your first task.</p>
           </div>
         ) : (
           log.tasks.map(task => {
+            const isEditing = editingTaskId === task.id;
             const isRunning = !!task.timerStartedAt;
             const liveMinutes = isRunning ? Math.floor((Date.now() - task.timerStartedAt!) / 60000) : 0;
             const currentTotal = task.actualDuration + liveMinutes;
@@ -298,100 +324,143 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
                   </div>
                   
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-4 mb-1">
-                      <div className="flex items-center gap-2 truncate">
-                        <h4 className={`text-sm font-semibold truncate transition-all ${isCompleted ? 'text-slate-500 line-through decoration-emerald-500/50 decoration-2' : 'text-white'}`}>
-                          {task.title}
-                        </h4>
-                        {isCompleted && (
-                          <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter bg-emerald-500 text-white">
-                            Settled
-                          </span>
-                        )}
+                    {isEditing ? (
+                      <div className="space-y-2 animate-in fade-in duration-200">
+                        <input 
+                          type="text"
+                          value={editFormData.title}
+                          onChange={e => setEditFormData({...editFormData, title: e.target.value})}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1 text-sm text-white"
+                        />
+                        <textarea 
+                          value={editFormData.description}
+                          onChange={e => setEditFormData({...editFormData, description: e.target.value})}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1 text-xs text-white h-16 resize-none"
+                        />
+                        <div className="flex gap-2">
+                          <button onClick={saveEdit} className="flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-[10px] font-bold rounded-md"><Save size={12}/> Save</button>
+                          <button onClick={() => setEditingTaskId(null)} className="flex items-center gap-1 px-3 py-1 bg-slate-700 text-white text-[10px] font-bold rounded-md"><X size={12}/> Cancel</button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-[9px] font-bold text-slate-500 bg-slate-950/50 px-2 py-0.5 rounded border border-slate-800">
-                          Est: {formatMinutesToDisplay(task.duration)}
-                        </span>
-                        {(isCompleted || currentTotal > 0) && (
-                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded border ${
-                            isOverEstimate ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                          }`}>
-                            Act: {formatMinutesToDisplay(currentTotal)}
-                          </span>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between gap-4 mb-1">
+                          <div className="flex items-center gap-2 truncate">
+                            <h4 className={`text-sm font-semibold truncate transition-all ${isCompleted ? 'text-slate-500 line-through decoration-emerald-500/50 decoration-2' : 'text-white'}`}>
+                              {task.title}
+                            </h4>
+                            {isCompleted && (
+                              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter bg-emerald-500 text-white">
+                                Settled
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[9px] font-bold text-slate-500 bg-slate-950/50 px-2 py-0.5 rounded border border-slate-800">
+                              Est: {formatMinutesToDisplay(task.duration)}
+                            </span>
+                            {(isCompleted || currentTotal > 0) && (
+                              <span className={`text-[9px] font-bold px-2 py-0.5 rounded border ${
+                                isOverEstimate ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                              }`}>
+                                Act: {formatMinutesToDisplay(currentTotal)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        {task.description && (
+                          <p className={`text-xs mb-2 line-clamp-1 italic ${isCompleted ? 'text-slate-600' : 'text-slate-500'}`}>
+                            {task.description}
+                          </p>
                         )}
-                      </div>
-                    </div>
-                    {task.description && (
-                      <p className={`text-xs mb-2 line-clamp-1 italic ${isCompleted ? 'text-slate-600' : 'text-slate-500'}`}>
-                        {task.description}
-                      </p>
+                      </>
                     )}
                   </div>
                   
-                  <button 
-                    onClick={() => removeTask(task.id)}
-                    className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-600 hover:text-red-400 transition-all rounded-lg"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  {!isEditing && (
+                    <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
+                        onClick={() => startEditing(task)}
+                        title="Edit Task"
+                        className="p-1.5 text-slate-500 hover:text-indigo-400 hover:bg-slate-800 rounded-lg transition-colors"
+                      >
+                        <Edit3 size={14} />
+                      </button>
+                      <button 
+                        onClick={() => cloneTask(task)}
+                        title="Clone Task"
+                        className="p-1.5 text-slate-500 hover:text-emerald-400 hover:bg-slate-800 rounded-lg transition-colors"
+                      >
+                        <Copy size={14} />
+                      </button>
+                      <button 
+                        onClick={() => removeTask(task.id)}
+                        title="Delete Task"
+                        className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-slate-800 rounded-lg transition-colors"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  )}
                 </div>
 
-                <div className={`flex items-center justify-between border-t border-slate-800/50 pt-3 ${isCompleted ? 'bg-emerald-500/5 -mx-4 -mb-4 px-4 pb-4 rounded-b-2xl mt-0' : ''}`}>
-                  <div className="flex items-center gap-2">
-                    {!isCompleted ? (
-                      <>
-                        {!isRunning ? (
+                {!isEditing && (
+                  <div className={`flex items-center justify-between border-t border-slate-800/50 pt-3 ${isCompleted ? 'bg-emerald-500/5 -mx-4 -mb-4 px-4 pb-4 rounded-b-2xl mt-0' : ''}`}>
+                    <div className="flex items-center gap-2">
+                      {!isCompleted ? (
+                        <>
+                          {!isRunning ? (
+                            <button 
+                              onClick={() => startTask(task.id)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold rounded-lg transition-all shadow-lg shadow-indigo-600/10"
+                            >
+                              <Play size={12} fill="currentColor" /> Start Work
+                            </button>
+                          ) : (
+                            <button 
+                              onClick={() => pauseTask(task.id)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-bold rounded-lg transition-all shadow-lg shadow-amber-600/10"
+                            >
+                              <Pause size={12} fill="currentColor" /> Pause
+                            </button>
+                          )}
                           <button 
-                            onClick={() => startTask(task.id)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold rounded-lg transition-all shadow-lg shadow-indigo-600/10"
+                            onClick={() => completeTask(task.id)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded-lg transition-all shadow-lg shadow-emerald-600/10"
                           >
-                            <Play size={12} fill="currentColor" /> Start Work
+                            <CheckCircle2 size={12} /> Stop & Finish
                           </button>
-                        ) : (
+                        </>
+                      ) : (
+                        <div className="flex items-center gap-2">
                           <button 
-                            onClick={() => pauseTask(task.id)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-bold rounded-lg transition-all shadow-lg shadow-amber-600/10"
+                            onClick={() => resumeTask(task.id)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900/50 hover:bg-slate-800 text-slate-400 hover:text-white text-[10px] font-bold rounded-lg transition-all border border-slate-700/50"
                           >
-                            <Pause size={12} fill="currentColor" /> Pause
+                            <RotateCcw size={12} /> Resume / Reopen
                           </button>
-                        )}
-                        <button 
-                          onClick={() => completeTask(task.id)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded-lg transition-all shadow-lg shadow-emerald-600/10"
-                        >
-                          <CheckCircle2 size={12} /> Stop & Finish
-                        </button>
-                      </>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <button 
-                          onClick={() => resumeTask(task.id)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900/50 hover:bg-slate-800 text-slate-400 hover:text-white text-[10px] font-bold rounded-lg transition-all border border-slate-700/50"
-                        >
-                          <RotateCcw size={12} /> Resume / Reopen
-                        </button>
-                        <span className="text-[10px] text-emerald-500 font-bold uppercase tracking-widest flex items-center gap-1">
-                          <CheckCircle2 size={10} /> Task Logged
+                          <span className="text-[10px] text-emerald-500 font-bold uppercase tracking-widest flex items-center gap-1">
+                            <CheckCircle2 size={10} /> Task Logged
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {isRunning && (
+                      <div className="flex items-center gap-2 text-indigo-400">
+                        <span className="w-2 h-2 rounded-full bg-indigo-500 animate-ping"></span>
+                        <span className="text-[10px] font-mono font-bold uppercase tracking-tighter">Monitoring Live...</span>
+                      </div>
+                    )}
+                    {isCompleted && (
+                      <div className="text-[9px] text-slate-500 font-medium">
+                        Performance: <span className={isOverEstimate ? 'text-red-400' : 'text-emerald-500'}>
+                          {isOverEstimate ? 'Over' : 'Within'} Est.
                         </span>
                       </div>
                     )}
                   </div>
-
-                  {isRunning && (
-                    <div className="flex items-center gap-2 text-indigo-400">
-                      <span className="w-2 h-2 rounded-full bg-indigo-500 animate-ping"></span>
-                      <span className="text-[10px] font-mono font-bold uppercase tracking-tighter">Monitoring Live...</span>
-                    </div>
-                  )}
-                  {isCompleted && (
-                    <div className="text-[9px] text-slate-500 font-medium">
-                      Performance: <span className={isOverEstimate ? 'text-red-400' : 'text-emerald-500'}>
-                        {isOverEstimate ? 'Over' : 'Within'} Est.
-                      </span>
-                    </div>
-                  )}
-                </div>
+                )}
               </div>
             );
           })
