@@ -1,24 +1,23 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   LayoutDashboard, 
   Clock, 
   CheckSquare, 
-  BarChart3, 
   FileText, 
-  Settings, 
-  User,
-  ShieldCheck,
-  Bell,
-  LogOut,
-  Calendar,
-  Lock,
-  Code2,
-  Sun,
-  Moon
+  ShieldCheck, 
+  Bell, 
+  LogOut, 
+  Code2, 
+  Sun, 
+  Moon,
+  Cloud,
+  CloudOff,
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
-import { DayLog, AppState, AttendanceStatus, Task } from './types';
-import { getTodayStr, formatTime } from './utils/time';
+import { DayLog, AppState, Task } from './types';
+import { getTodayStr } from './utils/time';
 import AttendancePanel from './components/AttendancePanel';
 import TaskPanel from './components/TaskPanel';
 import AnalysisPanel from './components/AnalysisPanel';
@@ -37,7 +36,8 @@ const INITIAL_STATE: AppState = {
     targetWorkingHours: 8,
     userName: "Alex Rivers",
     userId: "ALX-9204",
-    systemPassword: "admin"
+    systemPassword: "admin",
+    sheetUrl: ""
   }
 };
 
@@ -53,6 +53,68 @@ const App: React.FC = () => {
   
   const [activeTab, setActiveTab] = useState<'overview' | 'attendance' | 'tasks' | 'reports' | 'admin'>('overview');
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'connected' | 'error'>('idle');
+
+  // Cloud Sync: Fetch Data (Identity-Aware)
+  useEffect(() => {
+    const loadFromCloud = async () => {
+      if (!state.config.sheetUrl || !state.isAuthenticated) return;
+      
+      setSyncStatus('syncing');
+      try {
+        // Append userId to the URL so Google Script knows which tab to fetch
+        const urlWithIdentity = `${state.config.sheetUrl}?userId=${encodeURIComponent(state.config.userId)}`;
+        const response = await fetch(urlWithIdentity);
+        if (response.ok) {
+          const cloudData = await response.json();
+          if (cloudData && Object.keys(cloudData).length > 0) {
+            setState(prev => ({
+              ...prev,
+              logs: cloudData.logs || prev.logs,
+              config: { ...prev.config, ...cloudData.config, sheetUrl: prev.config.sheetUrl }
+            }));
+            setSyncStatus('connected');
+          }
+        }
+      } catch (err) {
+        console.error("Cloud Fetch Error:", err);
+        setSyncStatus('error');
+      }
+    };
+
+    loadFromCloud();
+  }, [state.isAuthenticated, state.config.sheetUrl, state.config.userId]);
+
+  // Cloud Sync: Push Data (Triggers on any task or attendance update)
+  useEffect(() => {
+    const saveToCloud = async () => {
+      if (!state.config.sheetUrl || !state.isAuthenticated) return;
+      
+      setSyncStatus('syncing');
+      try {
+        const response = await fetch(state.config.sheetUrl, {
+          method: 'POST',
+          // We send the whole state; Google Script determines where to save based on userId inside config
+          body: JSON.stringify({
+            logs: state.logs,
+            config: state.config,
+            lastUpdated: new Date().toISOString()
+          })
+        });
+        if (response.ok) {
+          setSyncStatus('connected');
+        } else {
+          setSyncStatus('error');
+        }
+      } catch (err) {
+        console.error("Cloud Save Error:", err);
+        setSyncStatus('error');
+      }
+    };
+
+    const timeoutId = setTimeout(saveToCloud, 1500); // More aggressive debounce for faster recording
+    return () => clearTimeout(timeoutId);
+  }, [state.logs, state.config, state.isAuthenticated]);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -63,14 +125,12 @@ const App: React.FC = () => {
     localStorage.setItem('task_time_v1', JSON.stringify(state));
     if (state.theme === 'light') {
       document.documentElement.classList.remove('dark');
-      document.body.classList.remove('bg-slate-950', 'text-slate-100');
-      document.body.classList.add('bg-slate-50', 'text-slate-900');
+      document.body.className = 'bg-slate-50 text-slate-900 min-h-screen transition-colors duration-300';
     } else {
       document.documentElement.classList.add('dark');
-      document.body.classList.remove('bg-slate-50', 'text-slate-900');
-      document.body.classList.add('bg-slate-950', 'text-slate-100');
+      document.body.className = 'bg-slate-950 text-slate-100 min-h-screen transition-colors duration-300';
     }
-  }, [state]);
+  }, [state.theme, state.rememberMe, state.isAuthenticated]);
 
   const handleLogin = (userId: string, password: string, remember: boolean) => {
     if (password === state.config.systemPassword && (userId === state.config.userId || userId === state.config.userName)) {
@@ -129,7 +189,6 @@ const App: React.FC = () => {
 
   return (
     <div className={`flex flex-col md:flex-row h-screen overflow-hidden font-sans transition-colors duration-300 ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
-      {/* Sidebar */}
       <aside className={`hidden md:flex flex-col w-64 border-r p-6 no-print transition-colors ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
         <div className="flex items-center gap-3 mb-10 px-2">
           <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20">
@@ -170,10 +229,10 @@ const App: React.FC = () => {
           
           <div className={`px-2 py-3 rounded-xl border transition-colors ${isDark ? 'bg-slate-950/50 border-slate-800/50' : 'bg-slate-50 border-slate-200'}`}>
             <p className="text-[9px] text-slate-400 font-black uppercase tracking-[0.15em] mb-1 flex items-center gap-1.5">
-              <Code2 size={10} className="text-indigo-500" /> Authorized User
+              <Code2 size={10} className="text-indigo-500" /> Multi-Tenant Cloud
             </p>
             <p className={`text-[10px] font-bold truncate ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-              Shuja Anwar Ahmed Hashmi
+              Tab: {state.config.userId}
             </p>
           </div>
 
@@ -187,7 +246,6 @@ const App: React.FC = () => {
         </div>
       </aside>
 
-      {/* Main Content Area */}
       <main className="flex-1 overflow-y-auto scroll-smooth">
         <header className={`sticky top-0 z-30 flex items-center justify-between px-6 py-4 border-b no-print backdrop-blur-md transition-colors ${isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-white/80 border-slate-200'}`}>
           <div className="md:hidden flex items-center gap-3">
@@ -202,24 +260,32 @@ const App: React.FC = () => {
               {activeTab.charAt(0).toUpperCase() + activeTab.slice(1).replace('Panel', '')}
             </h2>
             <p className="text-xs text-slate-500 font-medium">
-              {currentTime.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+              Connected Identity: <span className="font-bold text-indigo-500">{state.config.userId}</span>
             </p>
           </div>
 
           <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-800/50 bg-slate-900/50">
+              {syncStatus === 'syncing' ? (
+                <RefreshCw size={14} className="text-indigo-400 animate-spin" />
+              ) : syncStatus === 'connected' ? (
+                <Cloud size={14} className="text-emerald-400" />
+              ) : syncStatus === 'error' ? (
+                <AlertCircle size={14} className="text-red-400" />
+              ) : (
+                <CloudOff size={14} className="text-slate-500" />
+              )}
+              <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                {syncStatus === 'syncing' ? 'Syncing...' : syncStatus === 'connected' ? 'Cloud Live' : syncStatus === 'error' ? 'Sync Error' : 'Offline'}
+              </span>
+            </div>
+
             <button 
               onClick={toggleTheme}
               className={`p-2 rounded-full border transition-all ${isDark ? 'bg-slate-900 border-slate-800 text-amber-400' : 'bg-slate-100 border-slate-200 text-indigo-600 hover:bg-slate-200'}`}
-              title={`Switch to ${isDark ? 'Light' : 'Dark'} Mode`}
             >
               {isDark ? <Sun size={18} /> : <Moon size={18} />}
             </button>
-            
-            <div className="flex items-center gap-2">
-              <button className={`p-2 rounded-full border transition-colors ${isDark ? 'text-slate-400 hover:text-white bg-slate-900 border-slate-800' : 'text-slate-500 hover:text-slate-900 bg-slate-100 border-slate-200'}`}>
-                <Bell size={18} />
-              </button>
-            </div>
           </div>
         </header>
 
@@ -240,22 +306,9 @@ const App: React.FC = () => {
           {activeTab === 'attendance' && <AttendancePanel log={todayLog} config={state.config} onUpdate={updateTodayLog} isFullWidth />}
           {activeTab === 'tasks' && <TaskPanel log={todayLog} onUpdate={updateTodayLog} historicalLogs={state.logs} isFullWidth />}
           {activeTab === 'reports' && <ReportsPanel logs={state.logs} config={state.config} isFullWidth />}
-          {activeTab === 'admin' && <AdminPanel state={state} updateConfig={updateConfig} />}
+          {activeTab === 'admin' && <AdminPanel state={state} updateConfig={updateConfig} theme={state.theme} />}
         </div>
       </main>
-
-      <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 border-t px-6 py-3 flex justify-between items-center no-print transition-colors ${isDark ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-white border-slate-200 text-slate-500'}`}>
-         {navItems.map(item => (
-           <button 
-             key={item.id}
-             onClick={() => setActiveTab(item.id as any)}
-             className={`flex flex-col items-center gap-1 ${activeTab === item.id ? 'text-indigo-500' : ''}`}
-           >
-             <item.icon size={20} />
-             <span className="text-[10px] font-bold uppercase tracking-tighter">{item.label.split(' ')[0]}</span>
-           </button>
-         ))}
-      </nav>
     </div>
   );
 };

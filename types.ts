@@ -38,5 +38,6 @@ export interface AppState {
     userName: string;
     userId: string;
     systemPassword: string; // Stored locally for demo
+    sheetUrl?: string; // Google Apps Script Web App URL
   };
 }
