@@ -78,20 +78,20 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
         
         // Report Title
         doc.setTextColor(255, 255, 255);
-        doc.setFontSize(24);
+        doc.setFontSize(22);
         doc.setFont('helvetica', 'bold');
-        doc.text('PERFORMANCE AUDIT REPORT', margin, 22);
+        doc.text('DETAILED WORKLOAD AUDIT', margin, 22);
         
         // User Branding
-        doc.setFontSize(11);
+        doc.setFontSize(10);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(99, 102, 241); // Indigo-400
-        doc.text(`EMPLOYEE: ${user?.name?.toUpperCase() || 'SYSTEM USER'}`, margin, 32);
+        doc.text(`AUDITEE: ${user?.name?.toUpperCase() || 'SYSTEM USER'}`, margin, 32);
         
-        doc.setFontSize(9);
+        doc.setFontSize(8);
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(148, 163, 184); // Slate-400
-        doc.text(`EMPLOYEE ID: ${user?.id || 'UNASSIGNED'}`, margin, 38);
+        doc.text(`NODE ID: ${user?.id || 'UNASSIGNED'}`, margin, 38);
         
         // Metadata
         doc.text(`GENERATED: ${new Date().toLocaleString()}`, pageWidth - margin - 55, 32);
@@ -109,124 +109,135 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
       doc.setDrawColor(226, 232, 240);
       doc.setFillColor(248, 250, 252);
       const gridW = (pageWidth - (margin * 2) - 10) / 3;
-      const gridH = 22;
+      const gridH = 20;
 
-      // Actual Hours Box
       doc.roundedRect(margin, y, gridW, gridH, 2, 2, 'FD');
       doc.setTextColor(100, 116, 139);
       doc.setFontSize(7);
-      doc.text('TOTAL BILLED HOURS', margin + 5, y + 6);
+      doc.text('TOTAL ACTUAL TIME', margin + 5, y + 6);
       doc.setTextColor(15, 23, 42);
-      doc.setFontSize(13);
+      doc.setFontSize(12);
       doc.setFont('helvetica', 'bold');
-      doc.text(`${(stats.totalActual / 60).toFixed(1)}h`, margin + 5, y + 15);
+      doc.text(formatMinutesToDisplay(stats.totalActual), margin + 5, y + 15);
 
-      // Efficiency Box
       doc.roundedRect(margin + gridW + 5, y, gridW, gridH, 2, 2, 'FD');
       doc.setTextColor(100, 116, 139);
       doc.setFontSize(7);
-      doc.text('AUDIT EFFICIENCY', margin + gridW + 10, y + 6);
+      doc.text('RESOURCE EFFICIENCY', margin + gridW + 10, y + 6);
       doc.setTextColor(79, 70, 229);
       doc.text(`${stats.avgEfficiency.toFixed(1)}%`, margin + gridW + 10, y + 15);
 
-      // Target Reach Box
       doc.roundedRect(margin + (gridW * 2) + 10, y, gridW, gridH, 2, 2, 'FD');
       doc.setTextColor(100, 116, 139);
       doc.setFontSize(7);
-      doc.text('LOGGED ENTRIES', margin + (gridW * 2) + 15, y + 6);
+      doc.text('TASKS COMPLETED', margin + (gridW * 2) + 15, y + 6);
       doc.setTextColor(16, 185, 129);
-      doc.text(`${monthlyLogs.length} Days`, margin + (gridW * 2) + 15, y + 15);
+      doc.text(`${stats.completedTasks} / ${stats.totalTasks}`, margin + (gridW * 2) + 15, y + 15);
 
-      y += 35;
+      y += 30;
 
-      // --- DATA TABLE ---
+      // --- DETAILED TASK TABLE ---
       const tableHeaders = [
-        { name: 'DATE', w: 25 },
-        { name: 'IN / OUT', w: 35 },
-        { name: 'ACTUAL', w: 25 },
-        { name: 'TASK DESCRIPTION / NOTES', w: pageWidth - (margin * 2) - 85 }
+        { name: 'DATE', w: 22 },
+        { name: 'TASK DESCRIPTION', w: pageWidth - (margin * 2) - 85 },
+        { name: 'PLANNED', w: 22 },
+        { name: 'ACTUAL', w: 22 },
+        { name: 'STATUS', w: 19 }
       ];
 
-      // Draw Header Row
-      doc.setFillColor(15, 23, 42);
-      doc.rect(margin, y, pageWidth - (margin * 2), 10, 'F');
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'bold');
-      
-      let curX = margin;
-      tableHeaders.forEach(h => {
-        doc.text(h.name, curX + 3, y + 6.5);
-        curX += h.w;
-      });
+      const drawTableHeader = (posY: number) => {
+        doc.setFillColor(15, 23, 42);
+        doc.rect(margin, posY, pageWidth - (margin * 2), 10, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        let curX = margin;
+        tableHeaders.forEach(h => {
+          doc.text(h.name, curX + 3, posY + 6.5);
+          curX += h.w;
+        });
+        return posY + 10;
+      };
 
-      y += 10;
+      y = drawTableHeader(y);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(31, 41, 55);
 
       let currentPDFPage = 1;
-      monthlyLogs.forEach((l, idx) => {
-        if (y > pageHeight - 25) {
-          doc.addPage();
-          currentPDFPage++;
-          drawReportHeader(currentPDFPage);
-          y = 55;
-          // Redraw Table Headers on new page
-          doc.setFillColor(15, 23, 42);
-          doc.rect(margin, y, pageWidth - (margin * 2), 10, 'F');
-          doc.setTextColor(255, 255, 255);
+      let rowCount = 0;
+
+      monthlyLogs.forEach((log) => {
+        log.tasks.forEach((task) => {
+          // Page overflow check
+          if (y > pageHeight - 20) {
+            doc.addPage();
+            currentPDFPage++;
+            drawReportHeader(currentPDFPage);
+            y = 55;
+            y = drawTableHeader(y);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(31, 41, 55);
+          }
+
+          // Alternating row colors
+          if (rowCount % 2 === 0) {
+            doc.setFillColor(249, 250, 251);
+            doc.rect(margin, y, pageWidth - (margin * 2), 10, 'F');
+          }
+          
+          doc.setDrawColor(226, 232, 240);
+          doc.rect(margin, y, pageWidth - (margin * 2), 10); // border for row
+
+          let curX = margin;
+          
+          // Date
+          doc.setFontSize(7);
+          doc.text(log.date, curX + 3, y + 6.5);
+          doc.line(curX + tableHeaders[0].w, y, curX + tableHeaders[0].w, y + 10);
+          curX += tableHeaders[0].w;
+          
+          // Description
           doc.setFont('helvetica', 'bold');
-          let subX = margin;
-          tableHeaders.forEach(h => {
-            doc.text(h.name, subX + 3, y + 6.5);
-            subX += h.w;
-          });
-          y += 10;
+          const titleText = task.title.length > 60 ? task.title.substring(0, 57) + "..." : task.title;
+          doc.text(titleText, curX + 3, y + 6.5);
           doc.setFont('helvetica', 'normal');
+          doc.line(curX + tableHeaders[1].w, y, curX + tableHeaders[1].w, y + 10);
+          curX += tableHeaders[1].w;
+          
+          // Planned
+          doc.text(formatMinutesToDisplay(task.duration), curX + 3, y + 6.5);
+          doc.line(curX + tableHeaders[2].w, y, curX + tableHeaders[2].w, y + 10);
+          curX += tableHeaders[2].w;
+          
+          // Actual
+          if (task.actualDuration > task.duration) {
+            doc.setTextColor(220, 38, 38); // Red for over
+          } else {
+            doc.setTextColor(16, 185, 129); // Green for within
+          }
+          doc.text(formatMinutesToDisplay(task.actualDuration), curX + 3, y + 6.5);
           doc.setTextColor(31, 41, 55);
-        }
-
-        // Stripe and Border
-        if (idx % 2 === 0) {
-          doc.setFillColor(248, 250, 252);
-          doc.rect(margin, y, pageWidth - (margin * 2), 10, 'F');
-        }
-        
-        doc.setDrawColor(226, 232, 240);
-        doc.rect(margin, y, pageWidth - (margin * 2), 10); // Full row border
-
-        let cellX = margin;
-        // Date
-        doc.text(l.date, cellX + 3, y + 6.5);
-        doc.line(cellX + tableHeaders[0].w, y, cellX + tableHeaders[0].w, y + 10);
-        cellX += tableHeaders[0].w;
-        
-        // Time
-        doc.text(`${l.timeIn || '--'} - ${l.timeOut || '--'}`, cellX + 3, y + 6.5);
-        doc.line(cellX + tableHeaders[1].w, y, cellX + tableHeaders[1].w, y + 10);
-        cellX += tableHeaders[1].w;
-        
-        // Hours
-        const dayActual = l.tasks.reduce((s, t) => s + t.actualDuration, 0);
-        doc.text(formatMinutesToDisplay(dayActual), cellX + 3, y + 6.5);
-        doc.line(cellX + tableHeaders[2].w, y, cellX + tableHeaders[2].w, y + 10);
-        cellX += tableHeaders[2].w;
-        
-        // Tasks
-        const taskSummary = l.tasks.map(t => t.title).join(', ');
-        const truncated = taskSummary.length > 70 ? taskSummary.substring(0, 67) + '...' : taskSummary;
-        doc.text(truncated || 'No specific tasks logged', cellX + 3, y + 6.5);
-
-        y += 10;
+          doc.line(curX + tableHeaders[3].w, y, curX + tableHeaders[3].w, y + 10);
+          curX += tableHeaders[3].w;
+          
+          // Status
+          doc.setFontSize(6);
+          const statusText = task.status.toUpperCase();
+          doc.text(statusText, curX + 3, y + 6.5);
+          
+          y += 10;
+          rowCount++;
+        });
       });
 
-      // Footer line
-      doc.setFontSize(8);
+      // Footer
+      doc.setFontSize(7);
       doc.setTextColor(148, 163, 184);
-      doc.text('This document is a certified professional productivity audit. All records are verified by system timestamps.', margin, pageHeight - 10);
-      doc.text('Created by Shuja Anwar Ahmed Hashmi', pageWidth - margin - 55, pageHeight - 10);
+      const footerY = pageHeight - 10;
+      doc.text('PROPRIETARY PERFORMANCE AUDIT DATA. ALL ENTRIES SECURED VIA SYSTEM TIMESTAMP.', margin, footerY);
+      doc.text(`Page ${currentPDFPage}`, pageWidth - margin - 15, footerY);
 
-      doc.save(`Audit_${user?.id || 'User'}_${monthName}_${currentYear}.pdf`);
+      doc.save(`Detailed_Audit_${user?.id || 'User'}_${monthName}_${currentYear}.pdf`);
     } catch (err) {
       console.error("Audit export failed:", err);
     } finally {
@@ -237,19 +248,19 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
   const exportToExcel = () => {
     setIsExporting('excel');
     try {
-      const attendanceData = monthlyLogs.map(l => ({
-        Date: l.date, "Clock In": l.timeIn || 'N/A', "Clock Out": l.timeOut || 'N/A',
-        "Total Hours": (l.timeIn && l.timeOut) ? (diffMinutes(l.timeIn, l.timeOut) / 60).toFixed(2) : 0,
-        "Efficiency %": (l.timeIn && l.timeOut) ? ((l.tasks.reduce((s, t) => s + t.actualDuration, 0) / diffMinutes(l.timeIn, l.timeOut)) * 100).toFixed(1) : 0
-      }));
       const tasksData: any[] = [];
       monthlyLogs.forEach(l => l.tasks.forEach(t => tasksData.push({
-        Date: l.date, "Task Title": t.title, "Est. Minutes": t.duration, "Actual Minutes": t.actualDuration, Status: t.status
+        Date: l.date,
+        "Task Title": t.title,
+        "Planned Minutes": t.duration,
+        "Actual Minutes": t.actualDuration,
+        "Difference": t.actualDuration - t.duration,
+        "Status": t.status,
+        "Efficiency %": t.duration > 0 ? ((t.duration / t.actualDuration) * 100).toFixed(1) : 100
       })));
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(attendanceData), "Attendance");
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tasksData), "Tasks");
-      XLSX.writeFile(wb, `Audit_Data_${user?.id || 'User'}_${getTodayStr()}.xlsx`);
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tasksData), "Detailed Task Log");
+      XLSX.writeFile(wb, `Detailed_Audit_${user?.id || 'User'}_${getTodayStr()}.xlsx`);
     } catch (error) {
       console.error(error);
     } finally {
@@ -270,7 +281,7 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
             </div>
             Reporting Intelligence
           </h3>
-          <p className="text-xs text-slate-500 mt-1">Audit-ready metrics for organizational oversight</p>
+          <p className="text-xs text-slate-500 mt-1">Audit-ready detailed metrics for granular analysis</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -279,7 +290,7 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
             <button onClick={() => setReportType('monthly')} className={`px-4 py-2 text-[10px] font-black uppercase tracking-[0.15em] rounded-xl transition-all ${reportType === 'monthly' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-600 hover:text-slate-300'}`}>Monthly</button>
           </div>
           <button onClick={exportToPDF} disabled={!!isExporting} className="flex items-center gap-2 px-4 py-2.5 bg-slate-800/80 hover:bg-slate-700 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider border border-slate-700 transition-all active:scale-95 disabled:opacity-50">
-            {isExporting === 'pdf' ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />} Executive PDF
+            {isExporting === 'pdf' ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />} Detailed PDF
           </button>
           <button onClick={exportToExcel} disabled={!!isExporting} className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all shadow-lg shadow-indigo-600/20 active:scale-95 disabled:opacity-50">
             {isExporting === 'excel' ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />} Data Sheet
