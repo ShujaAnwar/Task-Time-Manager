@@ -83,7 +83,7 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, tr
     updateConfig({ users: [...state.config.users, newUser] });
     
     if (state.config.sheetUrl && triggerManualSync) {
-      // Explicit action to create a new sheet for this user
+      // MANDATORY: Create a dedicated sheet for this user in Google Sheets
       await triggerManualSync('PROVISION_USER', { targetUser: newUser });
     }
 
@@ -92,7 +92,7 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, tr
       setProvisionSuccess(true);
       setProvisionData({ newUserId: '', newUserName: '', newPassword: '', role: 'user' });
       setTimeout(() => setProvisionSuccess(false), 3000);
-    }, 500);
+    }, 1000);
   };
 
   const removeUser = (userId: string) => {
@@ -165,38 +165,39 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, tr
 
   const GAS_TEMPLATE = `
 /**
- * GOOGLE APPS SCRIPT BACKEND v3 (High Performance Cross-Device Sync)
+ * GOOGLE APPS SCRIPT BACKEND v4 (Individual User Sheets)
  * Paste this into your Script Editor and Deploy as Web App.
  */
 function doPost(e) {
   var data = JSON.parse(e.postData.contents);
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   
-  // Storage logic: Using a dedicated sheet to store the entire JSON state per user
-  // This is significantly more reliable than logging individual rows for cross-device sync.
-  var storageSheet = ss.getSheetByName("SYSTEM_DATA") || ss.insertSheet("SYSTEM_DATA");
-  if (storageSheet.getLastColumn() === 0) {
-    storageSheet.appendRow(["Key", "Value", "LastUpdated"]);
-    storageSheet.setFrozenRows(1);
-  }
-
   var action = data.action;
   var userId = data.userId;
   var role = data.role;
 
-  if (action === "SYNC_DATA" || action === "FULL_DIRECTORY_SYNC" || action === "PROVISION_USER") {
-    // 1. Update Global Config (Directory)
-    updateStorage(storageSheet, "GLOBAL_CONFIG", JSON.stringify(data.config));
+  // 1. Handle User Provisioning (Create individual tabs)
+  if (action === "PROVISION_USER") {
+    var targetId = data.targetUser.id;
+    var userSheetName = "USER_DATA_" + targetId;
+    var sheet = ss.getSheetByName(userSheetName) || ss.insertSheet(userSheetName);
+    if (sheet.getLastColumn() === 0) {
+      sheet.appendRow(["StorageKey", "Value", "Timestamp"]);
+    }
+    // Update global directory
+    updateGlobalConfig(ss, data.config);
+  }
 
-    // 2. Update Logs
-    // Admin sends EVERYTHING. User sends only their part.
+  // 2. Handle Data Sync
+  if (action === "SYNC_DATA" || action === "MANUAL_SYNC") {
+    // Update individual user's data in their specific sheet
+    var userSheet = getOrCreateUserSheet(ss, userId);
+    var userData = data.userLogs[userId] || {};
+    updateSheetValue(userSheet, "LOG_BLOB", JSON.stringify(userData));
+    
+    // If admin, update global directory too
     if (role === "admin") {
-      updateStorage(storageSheet, "GLOBAL_LOGS", JSON.stringify(data.userLogs));
-    } else {
-      var currentLogs = getStorage(storageSheet, "GLOBAL_LOGS");
-      var logObj = currentLogs ? JSON.parse(currentLogs) : {};
-      logObj[userId] = data.userLogs[userId];
-      updateStorage(storageSheet, "GLOBAL_LOGS", JSON.stringify(logObj));
+      updateGlobalConfig(ss, data.config);
     }
   }
   
@@ -206,17 +207,33 @@ function doPost(e) {
 
 function doGet(e) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var storageSheet = ss.getSheetByName("SYSTEM_DATA");
+  var userId = e.parameter.userId;
+  var role = e.parameter.role;
   
-  var config = {};
+  var config = getGlobalConfig(ss);
   var userLogs = {};
 
-  if (storageSheet) {
-    var rawConfig = getStorage(storageSheet, "GLOBAL_CONFIG");
-    var rawLogs = getStorage(storageSheet, "GLOBAL_LOGS");
-    
-    if (rawConfig) config = JSON.parse(rawConfig);
-    if (rawLogs) userLogs = JSON.parse(rawLogs);
+  if (userId) {
+    var userSheet = ss.getSheetByName("USER_DATA_" + userId);
+    if (userSheet) {
+      var raw = getSheetValue(userSheet, "LOG_BLOB");
+      if (raw) userLogs[userId] = JSON.parse(raw);
+    }
+  }
+
+  // Admin gets a snapshot of all users for activity monitoring
+  if (role === "admin") {
+    var sheets = ss.getSheets();
+    sheets.forEach(function(s) {
+      var name = s.getName();
+      if (name.indexOf("USER_DATA_") === 0) {
+        var uId = name.replace("USER_DATA_", "");
+        if (uId !== userId) {
+          var raw = getSheetValue(s, "LOG_BLOB");
+          if (raw) userLogs[uId] = JSON.parse(raw);
+        }
+      }
+    });
   }
   
   return ContentService.createTextOutput(JSON.stringify({ 
@@ -225,9 +242,27 @@ function doGet(e) {
   })).setMimeType(ContentService.MimeType.JSON);
 }
 
-function updateStorage(sheet, key, value) {
+// Helpers
+function getOrCreateUserSheet(ss, id) {
+  var name = "USER_DATA_" + id;
+  return ss.getSheetByName(name) || ss.insertSheet(name);
+}
+
+function updateGlobalConfig(ss, config) {
+  var configSheet = ss.getSheetByName("GLOBAL_CONFIG") || ss.insertSheet("GLOBAL_CONFIG");
+  updateSheetValue(configSheet, "SYSTEM_CONFIG", JSON.stringify(config));
+}
+
+function getGlobalConfig(ss) {
+  var sheet = ss.getSheetByName("GLOBAL_CONFIG");
+  if (!sheet) return null;
+  var raw = getSheetValue(sheet, "SYSTEM_CONFIG");
+  return raw ? JSON.parse(raw) : null;
+}
+
+function updateSheetValue(sheet, key, value) {
   var data = sheet.getDataRange().getValues();
-  for (var i = 1; i < data.length; i++) {
+  for (var i = 0; i < data.length; i++) {
     if (data[i][0] == key) {
       sheet.getRange(i + 1, 2).setValue(value);
       sheet.getRange(i + 1, 3).setValue(new Date());
@@ -237,9 +272,9 @@ function updateStorage(sheet, key, value) {
   sheet.appendRow([key, value, new Date()]);
 }
 
-function getStorage(sheet, key) {
+function getSheetValue(sheet, key) {
   var data = sheet.getDataRange().getValues();
-  for (var i = 1; i < data.length; i++) {
+  for (var i = 0; i < data.length; i++) {
     if (data[i][0] == key) return data[i][1];
   }
   return null;
@@ -349,12 +384,12 @@ function getStorage(sheet, key) {
               <option value="admin">System Administrator</option>
             </select>
             <button type="submit" disabled={isProvisioning} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-4 rounded-2xl uppercase tracking-wider text-xs shadow-xl transition-all">
-              {isProvisioning ? <RefreshCw className="animate-spin mx-auto" size={16} /> : 'Create Identity & Sync'}
+              {isProvisioning ? <RefreshCw className="animate-spin mx-auto" size={16} /> : 'Create Identity & Cloud Sheet'}
             </button>
             {provisionSuccess && (
               <div className="flex items-center justify-center gap-2 text-emerald-400 animate-pulse">
                 <Check size={14} />
-                <p className="text-[10px] font-bold uppercase tracking-widest">User Successfully Provisioned</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest">User & Cloud Sheet Ready</p>
               </div>
             )}
           </form>
@@ -365,25 +400,25 @@ function getStorage(sheet, key) {
       <div className={`rounded-[2.5rem] p-8 border backdrop-blur-md transition-all ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-lg font-bold flex items-center gap-2.5 text-white">
-            <Code size={20} className="text-indigo-400" /> Cloud Script Configuration
+            <Code size={20} className="text-indigo-400" /> Cloud Script Configuration (v4)
           </h3>
           <button 
             onClick={() => setShowScript(!showScript)}
             className="text-xs text-indigo-400 font-bold hover:underline"
           >
-            {showScript ? 'Hide Logic' : 'View High-Performance Template'}
+            {showScript ? 'Hide Logic' : 'View Per-User Sheet Template'}
           </button>
         </div>
         
         {showScript ? (
           <div className="space-y-4">
-            <p className="text-xs text-slate-500 font-medium">This script enables full JSON state synchronization, ensuring every PC/browser always has the latest data.</p>
+            <p className="text-xs text-slate-500 font-medium">This script creates a new tab for every user, ensuring their data is isolated and synced perfectly across devices.</p>
             <pre className="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-[10px] font-mono text-indigo-300 overflow-x-auto whitespace-pre">
               {GAS_TEMPLATE}
             </pre>
           </div>
         ) : (
-          <p className="text-xs text-slate-500">The current architecture supports automatic JSON blob syncing for instant cross-device updates. Ensure your Google Apps Script is updated to v3.</p>
+          <p className="text-xs text-slate-500">The current architecture supports automatic "USER_DATA_[ID]" tab creation. Ensure your Google Apps Script is updated to v4.</p>
         )}
       </div>
 
