@@ -348,7 +348,7 @@ const App: React.FC = () => {
               )}
               {activeTab === 'attendance' && <AttendancePanel log={todayLog} config={state.config} onUpdate={updateTodayLog} isFullWidth />}
               {activeTab === 'tasks' && <TaskPanel log={todayLog} onUpdate={updateTodayLog} historicalLogs={currentUserLogs} isFullWidth />}
-              {activeTab === 'reports' && <ReportsPanel logs={currentUserLogs} config={state.config} isFullWidth />}
+              {activeTab === 'reports' && <ReportsPanel logs={currentUserLogs} config={state.config} user={state.currentUser} isFullWidth />}
               {activeTab === 'activity' && isAdmin && <UserActivityPanel state={state} />}
               {activeTab === 'admin' && isAdmin && <AdminPanel state={state} updateConfig={updateConfig} restoreFullState={restoreFullState} triggerManualSync={triggerManualSync} />}
             </>

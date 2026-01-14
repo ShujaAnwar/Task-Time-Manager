@@ -1,19 +1,17 @@
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   FileText, 
-  Download, 
-  Clock, 
-  CheckCircle2, 
-  TrendingUp, 
   BarChart2, 
   FileSpreadsheet, 
   FileDown, 
   Loader2, 
-  TrendingDown,
+  TrendingUp,
+  Clock,
+  CheckCircle2,
   Calendar
 } from 'lucide-react';
-import { DayLog, AppState } from '../types';
+import { DayLog, AppState, UserProfile } from '../types';
 import { getTodayStr, diffMinutes, formatMinutesToDisplay, isLate } from '../utils/time';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { jsPDF } from 'jspdf';
@@ -22,10 +20,11 @@ import * as XLSX from 'xlsx';
 interface Props {
   logs: Record<string, DayLog>;
   config: AppState['config'];
+  user?: UserProfile;
   isFullWidth?: boolean;
 }
 
-const ReportsPanel: React.FC<Props> = ({ logs, config, isFullWidth }) => {
+const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
   const [reportType, setReportType] = useState<'daily' | 'monthly'>('daily');
   const [isExporting, setIsExporting] = useState<string | null>(null);
 
@@ -66,115 +65,185 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, isFullWidth }) => {
   const exportToPDF = async () => {
     setIsExporting('pdf');
     try {
-      const doc = new jsPDF();
-      const margin = 15;
+      const doc = new jsPDF('p', 'mm', 'a4');
+      const margin = 20;
       const pageWidth = doc.internal.pageSize.getWidth();
-      let y = 20;
+      const pageHeight = doc.internal.pageSize.getHeight();
+      let y = 0;
 
-      // --- HEADER SECTION ---
-      doc.setFillColor(79, 70, 229); // Indigo-600
-      doc.rect(0, 0, pageWidth, 45, 'F');
-      
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(22);
-      doc.setFont('helvetica', 'bold');
-      doc.text('EXECUTIVE PRODUCTIVITY AUDIT', margin, 25);
-      
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`EMPLOYEE: ${config.users.find(u => u.id === allLogs[0]?.date ? 'User' : 'Self')?.name || 'System User'}`, margin, 35);
-      doc.text(`REPORTING PERIOD: ${monthName} ${currentYear}`, margin, 40);
-      doc.text(`GENERATED ON: ${new Date().toLocaleString()}`, pageWidth - margin - 60, 40);
+      const drawHeader = (pageNum: number) => {
+        // Aesthetic Background Header
+        doc.setFillColor(31, 41, 55); // Slate-800
+        doc.rect(0, 0, pageWidth, 50, 'F');
+        
+        // Logo Accent
+        doc.setFillColor(79, 70, 229); // Indigo-600
+        doc.rect(margin, 15, 12, 12, 'F');
+        
+        // Main Title
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(22);
+        doc.setFont('helvetica', 'bold');
+        doc.text('EXECUTIVE PRODUCTIVITY AUDIT', margin + 18, 25);
+        
+        // Document Metadata
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(209, 213, 219);
+        doc.text(`EMPLOYEE: ${user?.name || 'Authorized Personnel'}`, margin, 38);
+        doc.text(`ID: ${user?.id || 'N/A'}`, margin, 43);
+        
+        doc.text(`DATE GENERATED: ${new Date().toLocaleString()}`, pageWidth - margin - 60, 38, { align: 'left' });
+        doc.text(`PERIOD: ${monthName} ${currentYear}`, pageWidth - margin - 60, 43, { align: 'left' });
+        
+        doc.setTextColor(156, 163, 175);
+        doc.text(`Page ${pageNum}`, pageWidth - margin - 10, 10);
+      };
 
-      y = 60;
+      drawHeader(1);
+      y = 65;
 
-      // --- SUMMARY TILES ---
-      doc.setDrawColor(226, 232, 240);
-      doc.setFillColor(248, 250, 252);
-      
-      const tileWidth = (pageWidth - (margin * 2) - 10) / 3;
-      
-      // Tile 1: Total Hours
-      doc.roundedRect(margin, y, tileWidth, 25, 3, 3, 'FD');
-      doc.setTextColor(100, 116, 139);
+      // Summary Stats Grid
+      doc.setDrawColor(229, 231, 235);
+      doc.setFillColor(249, 250, 251);
+      const boxW = (pageWidth - (margin * 2) - 10) / 3;
+      const boxH = 25;
+
+      // Box 1
+      doc.roundedRect(margin, y, boxW, boxH, 2, 2, 'FD');
+      doc.setTextColor(107, 114, 128);
       doc.setFontSize(8);
       doc.text('TOTAL WORK HOURS', margin + 5, y + 8);
-      doc.setTextColor(15, 23, 42);
+      doc.setTextColor(17, 24, 39);
       doc.setFontSize(14);
       doc.setFont('helvetica', 'bold');
-      doc.text(`${(stats.totalActual / 60).toFixed(1)}h`, margin + 5, y + 18);
+      doc.text(`${(stats.totalActual / 60).toFixed(1)} hrs`, margin + 5, y + 18);
 
-      // Tile 2: Avg Efficiency
-      doc.roundedRect(margin + tileWidth + 5, y, tileWidth, 25, 3, 3, 'FD');
-      doc.setTextColor(100, 116, 139);
+      // Box 2
+      doc.roundedRect(margin + boxW + 5, y, boxW, boxH, 2, 2, 'FD');
+      doc.setTextColor(107, 114, 128);
       doc.setFontSize(8);
-      doc.text('AVG EFFICIENCY', margin + tileWidth + 10, y + 8);
+      doc.text('AVG PRODUCTIVITY', margin + boxW + 10, y + 8);
       doc.setTextColor(79, 70, 229);
       doc.setFontSize(14);
-      doc.text(`${stats.avgEfficiency.toFixed(1)}%`, margin + tileWidth + 10, y + 18);
+      doc.text(`${stats.avgEfficiency.toFixed(1)}%`, margin + boxW + 10, y + 18);
 
-      // Tile 3: Completed Tasks
-      doc.roundedRect(margin + (tileWidth * 2) + 10, y, tileWidth, 25, 3, 3, 'FD');
-      doc.setTextColor(100, 116, 139);
+      // Box 3
+      doc.roundedRect(margin + (boxW * 2) + 10, y, boxW, boxH, 2, 2, 'FD');
+      doc.setTextColor(107, 114, 128);
       doc.setFontSize(8);
-      doc.text('TASKS COMPLETED', margin + (tileWidth * 2) + 15, y + 8);
+      doc.text('COMPLETED TASKS', margin + (boxW * 2) + 15, y + 8);
       doc.setTextColor(16, 185, 129);
       doc.setFontSize(14);
-      doc.text(`${stats.completedTasks}`, margin + (tileWidth * 2) + 15, y + 18);
+      doc.text(`${stats.completedTasks}`, margin + (boxW * 2) + 15, y + 18);
 
       y += 40;
 
-      // --- TABLE HEADER ---
-      doc.setFillColor(15, 23, 42); // Slate-900
+      // --- TABLE SECTION ---
+      // Column Configuration
+      const columns = [
+        { header: 'DATE', width: 30 },
+        { header: 'ATTENDANCE', width: 45 },
+        { header: 'LOGGED HRS', width: 30 },
+        { header: 'PRIMARY TASKS PERFORMED', width: pageWidth - (margin * 2) - 105 }
+      ];
+
+      // Draw Table Headers
+      doc.setFillColor(17, 24, 39); // Dark Gray
       doc.rect(margin, y, pageWidth - (margin * 2), 10, 'F');
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(9);
       doc.setFont('helvetica', 'bold');
       
-      const colWidths = { date: 30, attendance: 50, hours: 30, tasks: 70 };
-      doc.text('DATE', margin + 5, y + 6.5);
-      doc.text('ATTENDANCE (IN/OUT)', margin + colWidths.date + 5, y + 6.5);
-      doc.text('WORK HOURS', margin + colWidths.date + colWidths.attendance + 5, y + 6.5);
-      doc.text('TASK LOGS', margin + colWidths.date + colWidths.attendance + colWidths.hours + 5, y + 6.5);
+      let currentX = margin;
+      columns.forEach(col => {
+        doc.text(col.header, currentX + 3, y + 6.5);
+        currentX += col.width;
+      });
 
       y += 10;
       doc.setFont('helvetica', 'normal');
-      doc.setTextColor(51, 65, 85);
+      doc.setTextColor(31, 41, 55);
 
-      // --- TABLE ROWS ---
-      monthlyLogs.forEach((l, index) => {
-        // Page break logic
-        if (y > 270) {
+      // Draw Table Body
+      let currentPage = 1;
+      monthlyLogs.forEach((log, index) => {
+        // Page overflow protection
+        if (y > pageHeight - 30) {
           doc.addPage();
-          y = 20;
-          // Re-draw header if needed on new page
+          currentPage++;
+          drawHeader(currentPage);
+          y = 65;
+          // Re-draw headers on new page
+          doc.setFillColor(17, 24, 39);
+          doc.rect(margin, y, pageWidth - (margin * 2), 10, 'F');
+          doc.setTextColor(255, 255, 255);
+          doc.setFont('helvetica', 'bold');
+          let headerX = margin;
+          columns.forEach(col => {
+            doc.text(col.header, headerX + 3, y + 6.5);
+            headerX += col.width;
+          });
+          y += 10;
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(31, 41, 55);
         }
 
+        // Stripe styling
         if (index % 2 === 0) {
-          doc.setFillColor(248, 250, 252);
+          doc.setFillColor(243, 244, 246);
           doc.rect(margin, y, pageWidth - (margin * 2), 10, 'F');
         }
 
-        doc.text(l.date, margin + 5, y + 6.5);
-        doc.text(`${l.timeIn || '--'} to ${l.timeOut || '--'}`, margin + colWidths.date + 5, y + 6.5);
+        // Cell borders
+        doc.setDrawColor(209, 213, 219);
+        doc.line(margin, y, pageWidth - margin, y); // Top line
+        doc.line(margin, y + 10, pageWidth - margin, y + 10); // Bottom line
+
+        // Draw Row Data
+        let dataX = margin;
+        doc.text(log.date, dataX + 3, y + 6.5);
+        dataX += columns[0].width;
         
-        const dayActual = l.tasks.reduce((s, t) => s + t.actualDuration, 0);
-        doc.text(formatMinutesToDisplay(dayActual), margin + colWidths.date + colWidths.attendance + 5, y + 6.5);
+        doc.text(`${log.timeIn || '--'} - ${log.timeOut || '--'}`, dataX + 3, y + 6.5);
+        dataX += columns[1].width;
         
-        const taskTitles = l.tasks.slice(0, 2).map(t => t.title).join(', ');
-        const taskText = l.tasks.length > 2 ? `${taskTitles}... (+${l.tasks.length - 2})` : (taskTitles || 'No tasks');
-        doc.text(taskText, margin + colWidths.date + colWidths.attendance + colWidths.hours + 5, y + 6.5, { maxWidth: 65 });
+        const dayActual = log.tasks.reduce((s, t) => s + t.actualDuration, 0);
+        doc.text(formatMinutesToDisplay(dayActual), dataX + 3, y + 6.5);
+        dataX += columns[2].width;
+        
+        const taskTitles = log.tasks.map(t => t.title).join(', ');
+        const truncatedTasks = taskTitles.length > 55 ? taskTitles.substring(0, 52) + '...' : taskTitles;
+        doc.text(truncatedTasks || 'No tasks logged', dataX + 3, y + 6.5);
 
         y += 10;
       });
 
+      // Signature Block
+      if (y > pageHeight - 50) {
+        doc.addPage();
+        drawHeader(currentPage + 1);
+        y = 65;
+      }
+      y += 20;
+      doc.setDrawColor(31, 41, 55);
+      doc.setLineWidth(0.5);
+      doc.line(margin, y, margin + 60, y);
       doc.setFontSize(8);
-      doc.setTextColor(148, 163, 184);
-      doc.text('This is an automated system-generated audit report. Verified by Task & Time Manager.', margin, 285);
+      doc.setTextColor(75, 85, 99);
+      doc.text('Employee Signature', margin, y + 5);
+      
+      doc.line(pageWidth - margin - 60, y, pageWidth - margin, y);
+      doc.text('Authorized Supervisor', pageWidth - margin - 60, y + 5);
 
-      doc.save(`TaskTime_Audit_${config.officeStartTime.replace(':','-')}_${getTodayStr()}.pdf`);
+      // Footer
+      doc.setFontSize(7);
+      doc.setTextColor(156, 163, 175);
+      doc.text('CONFIDENTIAL PRODUCTIVITY AUDIT REPORT. System generated by Task & Time Manager v2.0.', margin, pageHeight - 10);
+
+      doc.save(`AuditReport_${user?.id || 'User'}_${getTodayStr()}.pdf`);
     } catch (error) {
-      console.error("PDF Export failed:", error);
+      console.error("PDF Export error:", error);
     } finally {
       setIsExporting(null);
     }
@@ -195,7 +264,7 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, isFullWidth }) => {
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(attendanceData), "Attendance");
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tasksData), "Tasks");
-      XLSX.writeFile(wb, `TaskTime_Executive_Report_${getTodayStr()}.xlsx`);
+      XLSX.writeFile(wb, `Audit_Data_${user?.id || 'User'}_${getTodayStr()}.xlsx`);
     } catch (error) {
       console.error(error);
     } finally {
@@ -225,10 +294,10 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, isFullWidth }) => {
             <button onClick={() => setReportType('monthly')} className={`px-4 py-2 text-[10px] font-black uppercase tracking-[0.15em] rounded-xl transition-all ${reportType === 'monthly' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-600 hover:text-slate-300'}`}>Monthly</button>
           </div>
           <button onClick={exportToPDF} disabled={!!isExporting} className="flex items-center gap-2 px-4 py-2.5 bg-slate-800/80 hover:bg-slate-700 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider border border-slate-700 transition-all active:scale-95 disabled:opacity-50">
-            {isExporting === 'pdf' ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />} Pro PDF Report
+            {isExporting === 'pdf' ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />} Executive PDF
           </button>
           <button onClick={exportToExcel} disabled={!!isExporting} className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all shadow-lg shadow-indigo-600/20 active:scale-95 disabled:opacity-50">
-            {isExporting === 'excel' ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />} Excel Data
+            {isExporting === 'excel' ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />} Data Sheet
           </button>
         </div>
       </div>
