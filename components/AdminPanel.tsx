@@ -496,7 +496,7 @@ function getValue(sheet, key) {
         </div>
         <div className="bg-amber-500/5 border border-amber-500/10 p-4 rounded-2xl mb-6">
           <p className="text-[11px] text-amber-200/80 leading-relaxed">
-            <span className="font-black text-amber-400">CRITICAL:</span> After pasting the code into Apps Script, you MUST click <strong>Deploy</strong> -> <strong>New Deployment</strong> and set <strong>"Who has access"</strong> to <strong>"Anyone"</strong>. If you do not do this, the application cannot create the user sheets.
+            <span className="font-black text-amber-400">CRITICAL:</span> After pasting the code into Apps Script, you MUST click <strong>Deploy</strong> &rarr; <strong>New Deployment</strong> and set <strong>"Who has access"</strong> to <strong>"Anyone"</strong>. If you do not do this, the application cannot create the user sheets.
           </p>
         </div>
         <button onClick={() => setShowScript(!showScript)} className="text-xs text-indigo-400 font-bold hover:underline mb-4">
