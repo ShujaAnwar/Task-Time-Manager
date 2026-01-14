@@ -20,6 +20,8 @@ export enum AttendanceStatus {
   INCOMPLETE = 'Incomplete'
 }
 
+export type ThemeType = 'executive' | 'cyberpunk' | 'emerald' | 'crimson' | 'nordic' | 'light';
+
 export interface DayLog {
   date: string; // YYYY-MM-DD
   timeIn?: string; // HH:mm
@@ -38,7 +40,7 @@ export interface UserProfile {
 export interface AppState {
   isAuthenticated: boolean;
   currentUser?: UserProfile;
-  theme: 'dark' | 'light';
+  theme: ThemeType;
   rememberMe: boolean;
   // userLogs[userId][date] = DayLog
   userLogs: Record<string, Record<string, DayLog>>;
