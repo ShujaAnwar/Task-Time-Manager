@@ -107,6 +107,7 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, tr
     // 2. Trigger Cloud Provisioning (Creates the tab)
     if (state.config.sheetUrl && triggerManualSync) {
       try {
+        // We explicitly pass the updated config here to ensure the backend receives the new user list immediately
         await triggerManualSync('PROVISION_USER', { 
           targetUser: newUser, 
           config: { ...state.config, users: updatedUsers } 

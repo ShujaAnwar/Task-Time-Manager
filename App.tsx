@@ -34,8 +34,8 @@ const DEFAULT_ADMIN: UserProfile = {
   createdAt: Date.now()
 };
 
-// This URL is the "Centralized Database" endpoint (Google Apps Script)
-const BUILTIN_SHEET_URL = "https://script.google.com/macros/s/AKfycbzEePFE7dsyv-AAIkp9dbwIpu02Ig-qU8UZNDiH4XpDsHeizejr9nfreCeulkdeH2-nQw/exec";
+// This is your specific Google Apps Script Web App URL
+const BUILTIN_SHEET_URL = "https://script.google.com/macros/s/AKfycbw19O0PcbtKUuseQ_3vy_JyBvkGeO-GZ8s3iFFCKxQQ1_h2BwbFnZhhastQlRpO9tDLjQ/exec";
 
 const INITIAL_STATE: AppState = {
   isAuthenticated: false,
@@ -57,12 +57,15 @@ const App: React.FC = () => {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Force re-auth and re-sync on refresh for security and data integrity
+        // Ensure the builtin URL is used if no custom one was previously saved
         return { 
           ...parsed, 
           isAuthenticated: false, 
           currentUser: undefined,
-          config: { ...parsed.config, sheetUrl: parsed.config.sheetUrl || BUILTIN_SHEET_URL }
+          config: { 
+            ...parsed.config, 
+            sheetUrl: parsed.config.sheetUrl && parsed.config.sheetUrl !== "" ? parsed.config.sheetUrl : BUILTIN_SHEET_URL 
+          }
         };
       } catch (e) {
         return INITIAL_STATE;
@@ -79,7 +82,7 @@ const App: React.FC = () => {
 
   const isAdmin = state.currentUser?.role === 'admin';
 
-  // HYDRATION: Fetch the "Single Source of Truth" from the Centralized Database (Google Sheet)
+  // HYDRATION: Fetch the "Single Source of Truth"
   useEffect(() => {
     const loadFromCloud = async () => {
       if (!state.config.sheetUrl || !state.isAuthenticated || !state.currentUser || isHydrated) return;
@@ -91,22 +94,15 @@ const App: React.FC = () => {
         
         if (response.ok) {
           const cloudData = await response.json();
-          console.log("Cloud Data Hydrated:", cloudData);
           
           setState(prev => {
             const updatedUserLogs = { ...prev.userLogs };
-            
-            // Centralized database returns logs for this user (or all if admin)
             if (cloudData.userLogs) {
               if (isAdmin) {
-                // Admin aggregates everything
                 Object.assign(updatedUserLogs, cloudData.userLogs);
               } else {
-                // Standard users only receive their own dedicated tab data
                 const myLogs = cloudData.userLogs[state.currentUser!.id];
-                if (myLogs) {
-                  updatedUserLogs[state.currentUser!.id] = myLogs;
-                }
+                if (myLogs) updatedUserLogs[state.currentUser!.id] = myLogs;
               }
             }
 
@@ -116,7 +112,7 @@ const App: React.FC = () => {
               config: { 
                 ...prev.config, 
                 ...(cloudData.config || {}),
-                sheetUrl: prev.config.sheetUrl // Preserve local URL config
+                sheetUrl: prev.config.sheetUrl
               }
             };
           });
@@ -124,7 +120,6 @@ const App: React.FC = () => {
           setSyncStatus('connected');
         } else {
           setSyncStatus('error');
-          // If no data exists (first time), consider it hydrated as empty
           if (response.status === 404) setIsHydrated(true);
         }
       } catch (err) {
@@ -138,20 +133,17 @@ const App: React.FC = () => {
     }
   }, [state.isAuthenticated, isHydrated, state.currentUser, state.config.sheetUrl, isAdmin]);
 
-  // SYNC: Push local updates to the Centralized Database
+  // SYNC: Push updates
   useEffect(() => {
     const saveToCloud = async () => {
-      // DONT OVERWRITE: Never push to cloud until we've pulled the current state.
       if (!state.config.sheetUrl || !state.isAuthenticated || !state.currentUser || !isHydrated) return;
       
-      isSyncingRef.current = true;
       setSyncStatus('syncing');
       try {
         const payload = {
           action: 'SYNC_DATA',
           userId: state.currentUser.id,
           role: state.currentUser.role,
-          // Only send the current user's data unless admin
           userLogs: isAdmin ? state.userLogs : { [state.currentUser.id]: state.userLogs[state.currentUser.id] || {} },
           config: state.config,
           lastUpdated: new Date().toISOString()
@@ -165,12 +157,10 @@ const App: React.FC = () => {
         setSyncStatus('connected');
       } catch (err) {
         setSyncStatus('error');
-      } finally {
-        isSyncingRef.current = false;
       }
     };
 
-    const timeoutId = setTimeout(saveToCloud, 3000);
+    const timeoutId = setTimeout(saveToCloud, 5000);
     return () => clearTimeout(timeoutId);
   }, [state.userLogs, state.config, state.isAuthenticated, isHydrated, state.currentUser, isAdmin]);
 
@@ -188,7 +178,7 @@ const App: React.FC = () => {
   const handleLogin = (userId: string, password: string, remember: boolean) => {
     const user = state.config.users.find(u => (u.id.toUpperCase() === userId.toUpperCase() || u.name.toUpperCase() === userId.toUpperCase()) && u.password === password);
     if (user) {
-      setIsHydrated(false); // Force fresh cloud hydration on every login
+      setIsHydrated(false);
       setState(prev => ({ 
         ...prev, 
         isAuthenticated: true, 
@@ -227,17 +217,19 @@ const App: React.FC = () => {
     if (!state.config.sheetUrl || !state.currentUser) return;
     setSyncStatus('syncing');
     try {
+      const payload = {
+        action: specialAction || 'MANUAL_SYNC',
+        userId: state.currentUser.id,
+        role: state.currentUser.role,
+        userLogs: state.userLogs,
+        config: state.config,
+        ...extraData
+      };
+      
       await fetch(state.config.sheetUrl, {
         method: 'POST',
         mode: 'no-cors',
-        body: JSON.stringify({
-          action: specialAction || 'MANUAL_SYNC',
-          userId: state.currentUser.id,
-          role: state.currentUser.role,
-          userLogs: state.userLogs,
-          config: state.config,
-          ...extraData
-        })
+        body: JSON.stringify(payload)
       });
       setSyncStatus('connected');
     } catch (e) {
