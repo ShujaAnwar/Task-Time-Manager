@@ -12,7 +12,8 @@ import {
   Bell,
   LogOut,
   Calendar,
-  Lock
+  Lock,
+  Code2
 } from 'lucide-react';
 import { DayLog, AppState, AttendanceStatus, Task } from './types';
 import { getTodayStr, formatTime } from './utils/time';
@@ -109,8 +110,8 @@ const App: React.FC = () => {
           <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20">
             <Clock className="text-white w-6 h-6" />
           </div>
-          <h1 className="text-xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">
-            CHRONOS
+          <h1 className="text-sm font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent leading-tight">
+            TASK & TIME MANAGER
           </h1>
         </div>
 
@@ -141,6 +142,16 @@ const App: React.FC = () => {
               <p className="text-xs text-slate-500">Employee ID: #29402</p>
             </div>
           </div>
+          
+          <div className="px-2 py-3 bg-slate-950/50 rounded-xl border border-slate-800/50">
+            <p className="text-[9px] text-slate-600 font-bold uppercase tracking-[0.15em] mb-1 flex items-center gap-1.5">
+              <Code2 size={10} className="text-indigo-500/50" /> Created By
+            </p>
+            <p className="text-[10px] text-slate-400 font-bold truncate">
+              Shuja Anwar Ahmed Hashmi
+            </p>
+          </div>
+
           <button 
             onClick={handleLogout}
             className="w-full flex items-center gap-3 px-4 py-2 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded-xl transition-all"

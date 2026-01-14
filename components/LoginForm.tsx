@@ -31,10 +31,12 @@ const LoginForm: React.FC<Props> = ({ onLogin }) => {
           <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl shadow-indigo-600/30 mb-4 animate-bounce duration-[2000ms]">
             <Clock className="text-white w-10 h-10" />
           </div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">
-            CHRONOS
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent text-center">
+            TASK & TIME MANAGER
           </h1>
-          <p className="text-slate-500 text-sm mt-2 uppercase tracking-[0.2em] font-medium">Enterprise Suite</p>
+          <p className="text-slate-500 text-[10px] mt-2 uppercase tracking-[0.3em] font-bold text-center">
+            Created By Shuja Anwar Ahmed Hashmi
+          </p>
         </div>
 
         <form 
@@ -98,13 +100,13 @@ const LoginForm: React.FC<Props> = ({ onLogin }) => {
 
             <div className="pt-4 border-t border-slate-800/50 flex items-center justify-center gap-2 text-slate-500">
               <ShieldCheck size={14} />
-              <span className="text-[10px] uppercase tracking-widest">End-to-End Encrypted Session</span>
+              <span className="text-[10px] uppercase tracking-widest">Secure Terminal Session</span>
             </div>
           </div>
         </form>
 
-        <p className="mt-10 text-center text-slate-600 text-xs">
-          Copyright © 2024 Chronos Systems. Secure Terminal v2.4.1
+        <p className="mt-10 text-center text-slate-600 text-[10px] font-medium uppercase tracking-widest">
+          Created By Shuja Anwar Ahmed Hashmi
         </p>
       </div>
       
