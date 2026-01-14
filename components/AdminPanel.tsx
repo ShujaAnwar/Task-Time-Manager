@@ -18,7 +18,8 @@ import {
   Upload, 
   Trash2,
   Settings,
-  FileJson
+  FileJson,
+  Radio
 } from 'lucide-react';
 import { AppState, UserProfile } from '../types';
 
@@ -26,13 +27,15 @@ interface Props {
   state: AppState;
   updateConfig: (newConfig: Partial<AppState['config']>) => void;
   restoreFullState?: (newState: Partial<AppState>) => void;
+  triggerManualSync?: () => Promise<void>;
   theme?: 'dark' | 'light';
 }
 
-const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, theme = 'dark' }) => {
+const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, triggerManualSync, theme = 'dark' }) => {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [provisionSuccess, setProvisionSuccess] = useState(false);
   const [isProvisioning, setIsProvisioning] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [restoreStatus, setRestoreStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -61,7 +64,7 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, th
     });
   };
 
-  const handleProvision = (e: React.FormEvent) => {
+  const handleProvision = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!provisionData.newUserId || !provisionData.newPassword) return;
     
@@ -74,18 +77,31 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, th
       createdAt: Date.now()
     };
 
+    // Update local state
+    updateConfig({ users: [...state.config.users, newUser] });
+    
+    // Attempt immediate manual sync if URL exists
+    // Note: React state updates are async, so triggerManualSync might send previous state
+    // But the debounced sync in App.tsx will pick up the new user within 2 seconds.
+    if (state.config.sheetUrl && triggerManualSync) {
+      setTimeout(async () => {
+        await triggerManualSync();
+      }, 100);
+    }
+
     setTimeout(() => {
-      updateConfig({ users: [...state.config.users, newUser] });
       setIsProvisioning(false);
       setProvisionSuccess(true);
       setProvisionData({ newUserId: '', newUserName: '', newPassword: '', role: 'user' });
       setTimeout(() => setProvisionSuccess(false), 3000);
-    }, 1000);
+    }, 500);
   };
 
   const removeUser = (userId: string) => {
     if (userId === state.currentUser?.id) return alert("Cannot remove active admin session.");
-    updateConfig({ users: state.config.users.filter(u => u.id !== userId) });
+    if (confirm(`Are you sure you want to remove ${userId}?`)) {
+      updateConfig({ users: state.config.users.filter(u => u.id !== userId) });
+    }
   };
 
   const handleBackup = () => {
@@ -108,6 +124,16 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, th
 
   const handleRestoreClick = () => {
     fileInputRef.current?.click();
+  };
+
+  const handleManualSync = async () => {
+    if (!triggerManualSync) return;
+    setIsSyncing(true);
+    try {
+      await triggerManualSync();
+    } finally {
+      setTimeout(() => setIsSyncing(false), 1000);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -143,9 +169,20 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, th
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
         {/* System Config */}
         <div className={`rounded-[2.5rem] p-8 border backdrop-blur-md shadow-2xl ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
-          <h3 className="text-lg font-bold flex items-center gap-2.5 mb-8">
-            <Settings size={20} className="text-indigo-400" /> System Settings
-          </h3>
+          <div className="flex justify-between items-center mb-8">
+            <h3 className="text-lg font-bold flex items-center gap-2.5 text-white">
+              <Settings size={20} className="text-indigo-400" /> System Settings
+            </h3>
+            {state.config.sheetUrl && (
+              <button 
+                onClick={handleManualSync}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${isSyncing ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+              >
+                {isSyncing ? <RefreshCw size={14} className="animate-spin" /> : <Radio size={14} />}
+                Sync Database
+              </button>
+            )}
+          </div>
           <form onSubmit={handleGeneralSave} className="space-y-6">
             <div className="space-y-2">
               <label className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Google Cloud Node URL</label>
@@ -187,7 +224,7 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, th
 
         {/* User Provisioning */}
         <div className={`rounded-[2.5rem] p-8 border backdrop-blur-md shadow-2xl ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
-          <h3 className="text-lg font-bold flex items-center gap-2.5 mb-8">
+          <h3 className="text-lg font-bold flex items-center gap-2.5 mb-8 text-white">
             <UserPlus size={20} className="text-emerald-400" /> Provision New Account
           </h3>
           <form onSubmit={handleProvision} className="space-y-4">
@@ -226,8 +263,9 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, th
               <option value="admin">System Administrator</option>
             </select>
             <button type="submit" disabled={isProvisioning} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-4 rounded-2xl uppercase tracking-wider text-xs shadow-xl transition-all">
-              {isProvisioning ? <RefreshCw className="animate-spin mx-auto" size={16} /> : 'Create Identity'}
+              {isProvisioning ? <RefreshCw className="animate-spin mx-auto" size={16} /> : 'Create & Sync Identity'}
             </button>
+            {provisionSuccess && <p className="text-[10px] text-emerald-400 font-bold text-center uppercase tracking-widest animate-pulse">Account Broadcasted Successfully</p>}
           </form>
         </div>
       </div>
@@ -285,7 +323,7 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, th
 
       {/* User Directory */}
       <div className={`rounded-[2.5rem] p-8 border backdrop-blur-md shadow-2xl ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
-        <h3 className="text-lg font-bold mb-6">User Directory</h3>
+        <h3 className="text-lg font-bold mb-6 text-white">User Directory</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {state.config.users.map(u => (
             <div key={u.id} className={`p-4 rounded-2xl border flex items-center justify-between ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>

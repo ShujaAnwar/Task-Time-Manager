@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   LayoutDashboard, 
   Clock, 
@@ -55,7 +55,6 @@ const App: React.FC = () => {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Ensure user stays logged in if they were authenticated
         return { ...parsed };
       } catch (e) {
         return INITIAL_STATE;
@@ -67,26 +66,42 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'overview' | 'attendance' | 'tasks' | 'reports' | 'admin' | 'activity'>('overview');
   const [currentTime, setCurrentTime] = useState(new Date());
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'connected' | 'error'>('idle');
+  const isSyncingRef = useRef(false);
 
   const isAdmin = state.currentUser?.role === 'admin';
 
-  // Cloud Sync: Fetch Data for Current User
+  // Cloud Sync: Fetch Data
   useEffect(() => {
     const loadFromCloud = async () => {
-      if (!state.config.sheetUrl || !state.isAuthenticated || !state.currentUser) return;
+      if (!state.config.sheetUrl || !state.isAuthenticated || !state.currentUser || isSyncingRef.current) return;
       
       setSyncStatus('syncing');
       try {
-        const urlWithIdentity = `${state.config.sheetUrl}?userId=${encodeURIComponent(state.currentUser.id)}`;
+        // Admins fetch global state, Users fetch only their specific ID
+        const urlWithIdentity = `${state.config.sheetUrl}?userId=${encodeURIComponent(state.currentUser.id)}&role=${state.currentUser.role}`;
         const response = await fetch(urlWithIdentity);
+        
         if (response.ok) {
           const cloudData = await response.json();
-          if (cloudData && cloudData.userLogs) {
-             setState(prev => ({
-              ...prev,
-              userLogs: { ...prev.userLogs, [state.currentUser!.id]: cloudData.userLogs[state.currentUser!.id] || {} },
-              config: { ...prev.config, ...cloudData.config, sheetUrl: prev.config.sheetUrl }
-            }));
+          if (cloudData) {
+             setState(prev => {
+               // Only merge userLogs if we actually got them
+               const newUserLogs = isAdmin ? { ...prev.userLogs, ...cloudData.userLogs } : { ...prev.userLogs, [state.currentUser!.id]: cloudData.userLogs?.[state.currentUser!.id] || {} };
+               
+               return {
+                ...prev,
+                userLogs: newUserLogs,
+                // For users, merge config. For admins, prioritize local config (which they manage) unless cloud is newer
+                config: { 
+                  ...prev.config, 
+                  ...cloudData.config, 
+                  // Never overwrite the sheetUrl we currently have locally
+                  sheetUrl: prev.config.sheetUrl,
+                  // If admin, keep the users list they just edited locally
+                  users: isAdmin ? prev.config.users : (cloudData.config?.users || prev.config.users)
+                }
+              };
+             });
             setSyncStatus('connected');
           }
         }
@@ -96,19 +111,23 @@ const App: React.FC = () => {
       }
     };
 
+    // Only auto-load once on mount/login
     loadFromCloud();
   }, [state.isAuthenticated, state.config.sheetUrl, state.currentUser?.id]);
 
-  // Cloud Sync: Push Data
+  // Cloud Sync: Push Data (Debounced)
   useEffect(() => {
     const saveToCloud = async () => {
       if (!state.config.sheetUrl || !state.isAuthenticated || !state.currentUser) return;
       
+      isSyncingRef.current = true;
       setSyncStatus('syncing');
       try {
         await fetch(state.config.sheetUrl, {
           method: 'POST',
           body: JSON.stringify({
+            userId: state.currentUser.id,
+            role: state.currentUser.role,
             userLogs: state.userLogs,
             config: state.config,
             lastUpdated: new Date().toISOString()
@@ -117,6 +136,8 @@ const App: React.FC = () => {
         setSyncStatus('connected');
       } catch (err) {
         setSyncStatus('error');
+      } finally {
+        isSyncingRef.current = false;
       }
     };
 
@@ -129,7 +150,6 @@ const App: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  // Persistence Effect: Always save the whole state to local storage
   useEffect(() => {
     localStorage.setItem('task_time_v2', JSON.stringify(state));
     document.documentElement.classList.toggle('dark', state.theme === 'dark');
@@ -170,6 +190,26 @@ const App: React.FC = () => {
       userLogs[userId][todayStr] = updater(currentDayLog);
       return { ...prev, userLogs };
     });
+  };
+
+  const triggerManualSync = async () => {
+    if (!state.config.sheetUrl || !state.currentUser) return;
+    setSyncStatus('syncing');
+    try {
+      await fetch(state.config.sheetUrl, {
+        method: 'POST',
+        body: JSON.stringify({
+          userId: state.currentUser.id,
+          role: state.currentUser.role,
+          userLogs: state.userLogs,
+          config: state.config,
+          manualTrigger: true
+        })
+      });
+      setSyncStatus('connected');
+    } catch (e) {
+      setSyncStatus('error');
+    }
   };
 
   const restoreFullState = (newState: Partial<AppState>) => {
@@ -248,7 +288,7 @@ const App: React.FC = () => {
           <h2 className="text-lg font-bold">{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}</h2>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-800/50 bg-slate-900/50">
-              {syncStatus === 'syncing' ? <RefreshCw size={14} className="text-indigo-400 animate-spin" /> : <Cloud size={14} className="text-emerald-400" />}
+              {syncStatus === 'syncing' ? <RefreshCw size={14} className="text-indigo-400 animate-spin" /> : syncStatus === 'error' ? <CloudOff size={14} className="text-red-400" /> : <Cloud size={14} className="text-emerald-400" />}
               <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{syncStatus}</span>
             </div>
             <button onClick={() => setState(p => ({ ...p, theme: p.theme === 'dark' ? 'light' : 'dark' }))} className="p-2 rounded-full border border-slate-800">
@@ -269,7 +309,7 @@ const App: React.FC = () => {
           {activeTab === 'tasks' && <TaskPanel log={todayLog} onUpdate={updateTodayLog} historicalLogs={currentUserLogs} isFullWidth />}
           {activeTab === 'reports' && <ReportsPanel logs={currentUserLogs} config={state.config} isFullWidth />}
           {activeTab === 'activity' && isAdmin && <UserActivityPanel state={state} />}
-          {activeTab === 'admin' && isAdmin && <AdminPanel state={state} updateConfig={updateConfig} restoreFullState={restoreFullState} />}
+          {activeTab === 'admin' && isAdmin && <AdminPanel state={state} updateConfig={updateConfig} restoreFullState={restoreFullState} triggerManualSync={triggerManualSync} />}
         </div>
       </main>
     </div>
