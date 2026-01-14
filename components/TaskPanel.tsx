@@ -13,7 +13,8 @@ import {
   Square,
   RotateCcw,
   Timer,
-  AlertCircle
+  AlertCircle,
+  Check
 } from 'lucide-react';
 import { DayLog, Task } from '../types';
 import { diffMinutes, formatMinutesToDisplay } from '../utils/time';
@@ -62,7 +63,7 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
       duration,
       actualDuration: 0,
       status: 'pending',
-      timerStartedAt: undefined, // Don't auto-start, let user click Play
+      timerStartedAt: undefined, 
       createdAt: Date.now()
     };
 
@@ -159,7 +160,7 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
   return (
     <div className={`bg-slate-900/50 border border-slate-800 rounded-3xl p-6 backdrop-blur-sm shadow-xl flex flex-col ${isFullWidth ? 'h-full' : ''}`}>
       <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-semibold flex items-center gap-2">
+        <h3 className="text-lg font-semibold flex items-center gap-2 text-white">
           <div className="p-2 bg-indigo-500/10 text-indigo-400 rounded-xl">
             <CheckSquare size={20} />
           </div>
@@ -274,37 +275,45 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
             const liveMinutes = isRunning ? Math.floor((Date.now() - task.timerStartedAt!) / 60000) : 0;
             const currentTotal = task.actualDuration + liveMinutes;
             const isOverEstimate = currentTotal > task.duration;
+            const isCompleted = task.status === 'completed';
 
             return (
               <div 
                 key={task.id} 
-                className={`group relative flex flex-col gap-3 p-4 border rounded-2xl transition-all ${
-                  task.status === 'completed' 
-                  ? 'bg-slate-900/40 border-emerald-500/20 opacity-80' 
+                className={`group relative flex flex-col gap-3 p-4 border rounded-2xl transition-all duration-300 ${
+                  isCompleted 
+                  ? 'bg-emerald-500/5 border-emerald-500/20 opacity-70 scale-[0.98] hover:scale-100' 
                   : isRunning 
                     ? 'bg-indigo-600/10 border-indigo-500/50 shadow-lg shadow-indigo-600/5' 
                     : 'bg-slate-800/30 border-slate-800 hover:border-slate-700'
                 }`}
               >
                 <div className="flex items-start gap-3">
-                  <div className={`p-2.5 rounded-xl shrink-0 ${
-                    task.status === 'completed' 
-                    ? 'bg-emerald-500/10 text-emerald-400' 
+                  <div className={`p-2.5 rounded-xl shrink-0 transition-colors ${
+                    isCompleted 
+                    ? 'bg-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.3)]' 
                     : isRunning ? 'bg-indigo-500 text-white animate-pulse' : 'bg-slate-900 text-slate-500'
                   }`}>
-                    {task.status === 'completed' ? <CheckCircle2 size={18} /> : isRunning ? <Timer size={18} /> : <Clock size={18} />}
+                    {isCompleted ? <Check size={18} strokeWidth={3} /> : isRunning ? <Timer size={18} /> : <Clock size={18} />}
                   </div>
                   
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-4 mb-1">
-                      <h4 className={`text-sm font-semibold truncate ${task.status === 'completed' ? 'text-slate-400 line-through' : 'text-white'}`}>
-                        {task.title}
-                      </h4>
+                      <div className="flex items-center gap-2 truncate">
+                        <h4 className={`text-sm font-semibold truncate transition-all ${isCompleted ? 'text-slate-500 line-through decoration-emerald-500/50 decoration-2' : 'text-white'}`}>
+                          {task.title}
+                        </h4>
+                        {isCompleted && (
+                          <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter bg-emerald-500 text-white">
+                            Settled
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <span className="text-[9px] font-bold text-slate-500 bg-slate-950/50 px-2 py-0.5 rounded border border-slate-800">
                           Est: {formatMinutesToDisplay(task.duration)}
                         </span>
-                        {(task.status === 'completed' || currentTotal > 0) && (
+                        {(isCompleted || currentTotal > 0) && (
                           <span className={`text-[9px] font-bold px-2 py-0.5 rounded border ${
                             isOverEstimate ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                           }`}>
@@ -314,7 +323,9 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
                       </div>
                     </div>
                     {task.description && (
-                      <p className="text-xs text-slate-500 mb-2 line-clamp-1 italic">{task.description}</p>
+                      <p className={`text-xs mb-2 line-clamp-1 italic ${isCompleted ? 'text-slate-600' : 'text-slate-500'}`}>
+                        {task.description}
+                      </p>
                     )}
                   </div>
                   
@@ -326,46 +337,58 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
                   </button>
                 </div>
 
-                <div className="flex items-center justify-between border-t border-slate-800/50 pt-3">
+                <div className={`flex items-center justify-between border-t border-slate-800/50 pt-3 ${isCompleted ? 'bg-emerald-500/5 -mx-4 -mb-4 px-4 pb-4 rounded-b-2xl mt-0' : ''}`}>
                   <div className="flex items-center gap-2">
-                    {task.status === 'pending' ? (
+                    {!isCompleted ? (
                       <>
                         {!isRunning ? (
                           <button 
                             onClick={() => startTask(task.id)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold rounded-lg transition-all"
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold rounded-lg transition-all shadow-lg shadow-indigo-600/10"
                           >
-                            <Play size={12} fill="currentColor" /> Start
+                            <Play size={12} fill="currentColor" /> Start Work
                           </button>
                         ) : (
                           <button 
                             onClick={() => pauseTask(task.id)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-bold rounded-lg transition-all"
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-bold rounded-lg transition-all shadow-lg shadow-amber-600/10"
                           >
                             <Pause size={12} fill="currentColor" /> Pause
                           </button>
                         )}
                         <button 
                           onClick={() => completeTask(task.id)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded-lg transition-all"
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded-lg transition-all shadow-lg shadow-emerald-600/10"
                         >
-                          <Square size={12} fill="currentColor" /> Stop & Finish
+                          <CheckCircle2 size={12} /> Stop & Finish
                         </button>
                       </>
                     ) : (
-                      <button 
-                        onClick={() => resumeTask(task.id)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold rounded-lg transition-all border border-slate-700"
-                      >
-                        <RotateCcw size={12} /> Reassign / Resume
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => resumeTask(task.id)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900/50 hover:bg-slate-800 text-slate-400 hover:text-white text-[10px] font-bold rounded-lg transition-all border border-slate-700/50"
+                        >
+                          <RotateCcw size={12} /> Resume / Reopen
+                        </button>
+                        <span className="text-[10px] text-emerald-500 font-bold uppercase tracking-widest flex items-center gap-1">
+                          <CheckCircle2 size={10} /> Task Logged
+                        </span>
+                      </div>
                     )}
                   </div>
 
                   {isRunning && (
                     <div className="flex items-center gap-2 text-indigo-400">
                       <span className="w-2 h-2 rounded-full bg-indigo-500 animate-ping"></span>
-                      <span className="text-[10px] font-mono font-bold uppercase tracking-tighter">In Progress...</span>
+                      <span className="text-[10px] font-mono font-bold uppercase tracking-tighter">Monitoring Live...</span>
+                    </div>
+                  )}
+                  {isCompleted && (
+                    <div className="text-[9px] text-slate-500 font-medium">
+                      Performance: <span className={isOverEstimate ? 'text-red-400' : 'text-emerald-500'}>
+                        {isOverEstimate ? 'Over' : 'Within'} Est.
+                      </span>
                     </div>
                   )}
                 </div>
