@@ -33,6 +33,9 @@ const DEFAULT_ADMIN: UserProfile = {
   createdAt: Date.now()
 };
 
+// Hardcoded Google Apps Script URL as requested
+const BUILTIN_SHEET_URL = "https://script.google.com/macros/s/AKfycbzEePFE7dsyv-AAIkp9dbwIpu02Ig-qU8UZNDiH4XpDsHeizejr9nfreCeulkdeH2-nQw/exec";
+
 const INITIAL_STATE: AppState = {
   isAuthenticated: false,
   currentUser: undefined,
@@ -42,7 +45,7 @@ const INITIAL_STATE: AppState = {
   config: {
     officeStartTime: "09:00",
     targetWorkingHours: 8,
-    sheetUrl: "",
+    sheetUrl: BUILTIN_SHEET_URL,
     users: [DEFAULT_ADMIN]
   }
 };
@@ -53,6 +56,10 @@ const App: React.FC = () => {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
+        // Ensure the sheet URL is always the built-in one if none is found or if forced
+        if (!parsed.config.sheetUrl) {
+          parsed.config.sheetUrl = BUILTIN_SHEET_URL;
+        }
         return { ...parsed };
       } catch (e) {
         return INITIAL_STATE;
@@ -119,7 +126,7 @@ const App: React.FC = () => {
           body: JSON.stringify({
             action: 'SYNC_DATA',
             userId: state.currentUser.id,
-            targetUserId: state.currentUser.id, // Routing hint for the backend
+            targetUserId: state.currentUser.id,
             role: state.currentUser.role,
             userLogs: isAdmin ? state.userLogs : { [state.currentUser.id]: state.userLogs[state.currentUser.id] },
             config: state.config,
