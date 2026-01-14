@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { 
   LayoutDashboard, 
@@ -89,7 +88,7 @@ const App: React.FC = () => {
       
       setSyncStatus('hydrating');
       try {
-        const url = `${state.config.sheetUrl}?userId=${encodeURIComponent(state.currentUser.id)}&role=${state.currentUser.role}&t=${Date.now()}`;
+        const url = `${state.config.sheetUrl}?userId=${encodeURIComponent(state.currentUser.id)}&userName=${encodeURIComponent(state.currentUser.name)}&role=${state.currentUser.role}&t=${Date.now()}`;
         const response = await fetch(url);
         
         if (response.ok) {
@@ -140,8 +139,8 @@ const App: React.FC = () => {
         const payload = {
           action: 'SYNC_DATA',
           userId: state.currentUser.id,
+          userName: state.currentUser.name,
           role: state.currentUser.role,
-          // Admin sends all known logs; User only sends their own
           userLogs: isAdmin ? state.userLogs : { [state.currentUser.id]: state.userLogs[state.currentUser.id] || {} },
           config: state.config,
           lastUpdated: new Date().toISOString()
@@ -218,6 +217,7 @@ const App: React.FC = () => {
       const payload = {
         action: specialAction || 'MANUAL_SYNC',
         userId: state.currentUser.id,
+        userName: state.currentUser.name,
         role: state.currentUser.role,
         userLogs: isAdmin ? state.userLogs : { [state.currentUser.id]: state.userLogs[state.currentUser.id] || {} },
         config: state.config,
