@@ -12,7 +12,8 @@ import {
   Cloud,
   CloudOff,
   RefreshCw,
-  Activity
+  Activity,
+  Loader2
 } from 'lucide-react';
 import { DayLog, AppState, UserProfile } from './types';
 import { getTodayStr } from './utils/time';
@@ -33,7 +34,6 @@ const DEFAULT_ADMIN: UserProfile = {
   createdAt: Date.now()
 };
 
-// Hardcoded Google Apps Script URL as requested
 const BUILTIN_SHEET_URL = "https://script.google.com/macros/s/AKfycbzEePFE7dsyv-AAIkp9dbwIpu02Ig-qU8UZNDiH4XpDsHeizejr9nfreCeulkdeH2-nQw/exec";
 
 const INITIAL_STATE: AppState = {
@@ -56,10 +56,7 @@ const App: React.FC = () => {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Ensure the sheet URL is always the built-in one if none is found or if forced
-        if (!parsed.config.sheetUrl) {
-          parsed.config.sheetUrl = BUILTIN_SHEET_URL;
-        }
+        if (!parsed.config.sheetUrl) parsed.config.sheetUrl = BUILTIN_SHEET_URL;
         return { ...parsed };
       } catch (e) {
         return INITIAL_STATE;
@@ -70,63 +67,86 @@ const App: React.FC = () => {
   
   const [activeTab, setActiveTab] = useState<'overview' | 'attendance' | 'tasks' | 'reports' | 'admin' | 'activity'>('overview');
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'connected' | 'error'>('idle');
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'hydrating' | 'syncing' | 'connected' | 'error'>('idle');
+  const [isHydrated, setIsHydrated] = useState(false);
   const isSyncingRef = useRef(false);
 
   const isAdmin = state.currentUser?.role === 'admin';
 
-  // Cloud Sync: Fetch Data
+  // Cloud Sync: Fetch Data (Hydration)
+  // This must run before any saving is allowed
   useEffect(() => {
     const loadFromCloud = async () => {
-      if (!state.config.sheetUrl || !state.isAuthenticated || !state.currentUser || isSyncingRef.current) return;
+      if (!state.config.sheetUrl || !state.isAuthenticated || !state.currentUser || isHydrated) return;
       
-      setSyncStatus('syncing');
+      setSyncStatus('hydrating');
       try {
-        const urlWithIdentity = `${state.config.sheetUrl}?userId=${encodeURIComponent(state.currentUser.id)}&role=${state.currentUser.role}`;
+        // Fetch full state from cloud
+        const urlWithIdentity = `${state.config.sheetUrl}?userId=${encodeURIComponent(state.currentUser.id)}&role=${state.currentUser.role}&t=${Date.now()}`;
         const response = await fetch(urlWithIdentity);
         
         if (response.ok) {
           const cloudData = await response.json();
           if (cloudData) {
-             setState(prev => {
-               const newUserLogs = isAdmin ? { ...prev.userLogs, ...cloudData.userLogs } : { ...prev.userLogs, [state.currentUser!.id]: cloudData.userLogs?.[state.currentUser!.id] || {} };
-               
-               return {
+            setState(prev => {
+              const mergedLogs = { ...prev.userLogs };
+              
+              // If cloud has logs, they are the absolute source of truth
+              if (cloudData.userLogs) {
+                if (isAdmin) {
+                  Object.assign(mergedLogs, cloudData.userLogs);
+                } else {
+                  // Standard user only hydrates their own part
+                  const myLogs = cloudData.userLogs[state.currentUser!.id];
+                  if (myLogs) mergedLogs[state.currentUser!.id] = myLogs;
+                }
+              }
+
+              return {
                 ...prev,
-                userLogs: newUserLogs,
+                userLogs: mergedLogs,
                 config: { 
                   ...prev.config, 
-                  ...cloudData.config, 
-                  sheetUrl: prev.config.sheetUrl,
-                  users: isAdmin ? prev.config.users : (cloudData.config?.users || prev.config.users)
+                  ...(cloudData.config || {}),
+                  // Keep local reference to sheet URL
+                  sheetUrl: BUILTIN_SHEET_URL 
                 }
               };
-             });
+            });
+            setIsHydrated(true);
             setSyncStatus('connected');
           }
+        } else {
+          // If fail to fetch, we still allow local use but warn
+          setSyncStatus('error');
         }
       } catch (err) {
+        console.error("Hydration failed:", err);
         setSyncStatus('error');
       }
     };
 
-    loadFromCloud();
-  }, [state.isAuthenticated, state.config.sheetUrl, state.currentUser?.id]);
+    if (state.isAuthenticated && !isHydrated) {
+      loadFromCloud();
+    }
+  }, [state.isAuthenticated, isHydrated]);
 
-  // Cloud Sync: Push Data (Debounced)
+  // Cloud Sync: Push Data (Only if Hydrated)
   useEffect(() => {
     const saveToCloud = async () => {
-      if (!state.config.sheetUrl || !state.isAuthenticated || !state.currentUser) return;
+      // CRITICAL: Never save if we haven't successfully loaded from cloud first!
+      // This prevents a new PC from wiping out the cloud data with its empty initial state.
+      if (!state.config.sheetUrl || !state.isAuthenticated || !state.currentUser || !isHydrated) return;
       
       isSyncingRef.current = true;
       setSyncStatus('syncing');
       try {
         await fetch(state.config.sheetUrl, {
           method: 'POST',
+          mode: 'no-cors', // Standard for GAS web apps
           body: JSON.stringify({
             action: 'SYNC_DATA',
             userId: state.currentUser.id,
-            targetUserId: state.currentUser.id,
             role: state.currentUser.role,
             userLogs: isAdmin ? state.userLogs : { [state.currentUser.id]: state.userLogs[state.currentUser.id] },
             config: state.config,
@@ -141,9 +161,10 @@ const App: React.FC = () => {
       }
     };
 
-    const timeoutId = setTimeout(saveToCloud, 2000);
+    // Debounce saves
+    const timeoutId = setTimeout(saveToCloud, 4000);
     return () => clearTimeout(timeoutId);
-  }, [state.userLogs, state.config, state.isAuthenticated]);
+  }, [state.userLogs, state.config, state.isAuthenticated, isHydrated]);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -159,6 +180,7 @@ const App: React.FC = () => {
   const handleLogin = (userId: string, password: string, remember: boolean) => {
     const user = state.config.users.find(u => (u.id.toUpperCase() === userId.toUpperCase() || u.name.toUpperCase() === userId.toUpperCase()) && u.password === password);
     if (user) {
+      setIsHydrated(false); // Force fresh hydration on every login
       setState(prev => ({ 
         ...prev, 
         isAuthenticated: true, 
@@ -172,6 +194,7 @@ const App: React.FC = () => {
 
   const handleLogout = () => {
     setState(prev => ({ ...prev, isAuthenticated: false, currentUser: undefined }));
+    setIsHydrated(false);
   };
 
   const updateConfig = (newConfig: Partial<AppState['config']>) => {
@@ -198,6 +221,7 @@ const App: React.FC = () => {
     try {
       await fetch(state.config.sheetUrl, {
         method: 'POST',
+        mode: 'no-cors',
         body: JSON.stringify({
           action: specialAction || 'MANUAL_SYNC',
           userId: state.currentUser.id,
@@ -215,6 +239,7 @@ const App: React.FC = () => {
 
   const restoreFullState = (newState: Partial<AppState>) => {
     setState(prev => ({ ...prev, ...newState, isAuthenticated: true }));
+    setIsHydrated(true); // Treat restored data as hydrated
   };
 
   if (!state.isAuthenticated) {
@@ -288,9 +313,17 @@ const App: React.FC = () => {
         <header className={`sticky top-0 z-30 flex items-center justify-between px-6 py-4 border-b backdrop-blur-md ${isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-white/80 border-slate-200'}`}>
           <h2 className="text-lg font-bold">{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}</h2>
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-800/50 bg-slate-900/50">
-              {syncStatus === 'syncing' ? <RefreshCw size={14} className="text-indigo-400 animate-spin" /> : syncStatus === 'error' ? <CloudOff size={14} className="text-red-400" /> : <Cloud size={14} className="text-emerald-400" />}
-              <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{syncStatus}</span>
+            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-800/50 ${syncStatus === 'error' ? 'bg-red-500/10' : 'bg-slate-900/50'}`}>
+              {syncStatus === 'hydrating' || syncStatus === 'syncing' ? (
+                <Loader2 size={14} className="text-indigo-400 animate-spin" />
+              ) : syncStatus === 'error' ? (
+                <CloudOff size={14} className="text-red-400" />
+              ) : (
+                <Cloud size={14} className="text-emerald-400" />
+              )}
+              <span className={`text-[10px] font-black uppercase tracking-widest ${syncStatus === 'error' ? 'text-red-400' : 'text-slate-500'}`}>
+                {syncStatus}
+              </span>
             </div>
             <button onClick={() => setState(p => ({ ...p, theme: p.theme === 'dark' ? 'light' : 'dark' }))} className="p-2 rounded-full border border-slate-800">
               {isDark ? <Sun size={18} className="text-amber-400" /> : <Moon size={18} className="text-indigo-600" />}
@@ -299,18 +332,29 @@ const App: React.FC = () => {
         </header>
 
         <div className="p-6 space-y-6 max-w-7xl mx-auto">
-          {activeTab === 'overview' && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <AttendancePanel log={todayLog} config={state.config} onUpdate={updateTodayLog} />
-              <AnalysisPanel log={todayLog} config={state.config} currentTime={currentTime} />
-              <InsightsPanel log={todayLog} logs={currentUserLogs} config={state.config} currentTime={currentTime} />
+          {!isHydrated && syncStatus === 'hydrating' && (
+            <div className="flex flex-col items-center justify-center py-20 animate-pulse">
+              <RefreshCw size={48} className="text-indigo-500 animate-spin mb-4" />
+              <p className="text-sm font-bold uppercase tracking-widest text-slate-500">Retrieving Cloud Identity...</p>
             </div>
           )}
-          {activeTab === 'attendance' && <AttendancePanel log={todayLog} config={state.config} onUpdate={updateTodayLog} isFullWidth />}
-          {activeTab === 'tasks' && <TaskPanel log={todayLog} onUpdate={updateTodayLog} historicalLogs={currentUserLogs} isFullWidth />}
-          {activeTab === 'reports' && <ReportsPanel logs={currentUserLogs} config={state.config} isFullWidth />}
-          {activeTab === 'activity' && isAdmin && <UserActivityPanel state={state} />}
-          {activeTab === 'admin' && isAdmin && <AdminPanel state={state} updateConfig={updateConfig} restoreFullState={restoreFullState} triggerManualSync={triggerManualSync} />}
+          
+          {isHydrated && (
+            <>
+              {activeTab === 'overview' && (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  <AttendancePanel log={todayLog} config={state.config} onUpdate={updateTodayLog} />
+                  <AnalysisPanel log={todayLog} config={state.config} currentTime={currentTime} />
+                  <InsightsPanel log={todayLog} logs={currentUserLogs} config={state.config} currentTime={currentTime} />
+                </div>
+              )}
+              {activeTab === 'attendance' && <AttendancePanel log={todayLog} config={state.config} onUpdate={updateTodayLog} isFullWidth />}
+              {activeTab === 'tasks' && <TaskPanel log={todayLog} onUpdate={updateTodayLog} historicalLogs={currentUserLogs} isFullWidth />}
+              {activeTab === 'reports' && <ReportsPanel logs={currentUserLogs} config={state.config} isFullWidth />}
+              {activeTab === 'activity' && isAdmin && <UserActivityPanel state={state} />}
+              {activeTab === 'admin' && isAdmin && <AdminPanel state={state} updateConfig={updateConfig} restoreFullState={restoreFullState} triggerManualSync={triggerManualSync} />}
+            </>
+          )}
         </div>
       </main>
     </div>

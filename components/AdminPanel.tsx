@@ -120,12 +120,10 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, tr
     URL.revokeObjectURL(url);
   };
 
-  // Fix: Added handleRestoreClick to programmatically trigger hidden file input
   const handleRestoreClick = () => {
     fileInputRef.current?.click();
   };
 
-  // Fix: Added handleFileChange to read and parse the uploaded JSON backup file
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -152,7 +150,6 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, tr
       setTimeout(() => setRestoreStatus('idle'), 3000);
     };
     reader.readAsText(file);
-    // Reset the input value so the same file can be uploaded again if needed
     e.target.value = '';
   };
 
@@ -168,32 +165,40 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, tr
 
   const GAS_TEMPLATE = `
 /**
- * GOOGLE APPS SCRIPT BACKEND
- * Paste this into your Script Editor
+ * GOOGLE APPS SCRIPT BACKEND v3 (High Performance Cross-Device Sync)
+ * Paste this into your Script Editor and Deploy as Web App.
  */
 function doPost(e) {
   var data = JSON.parse(e.postData.contents);
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheetName = data.targetUserId || data.userId || "General_Logs";
   
-  // Handle provisioning or sync
-  var sheet = ss.getSheetByName(sheetName);
-  if (!sheet) {
-    sheet = ss.insertSheet(sheetName);
-    // Add Headers
-    sheet.appendRow(["Timestamp", "Action", "Raw Payload"]);
-  }
-  
-  // If provisioning a user, we might want to also update the master list
-  if (data.action === "PROVISION_USER" || data.action === "FULL_DIRECTORY_SYNC") {
-    var configSheet = ss.getSheetByName("SYSTEM_CONFIG") || ss.insertSheet("SYSTEM_CONFIG");
-    configSheet.clear();
-    configSheet.appendRow(["Config Data"]);
-    configSheet.appendRow([JSON.stringify(data.config)]);
+  // Storage logic: Using a dedicated sheet to store the entire JSON state per user
+  // This is significantly more reliable than logging individual rows for cross-device sync.
+  var storageSheet = ss.getSheetByName("SYSTEM_DATA") || ss.insertSheet("SYSTEM_DATA");
+  if (storageSheet.getLastColumn() === 0) {
+    storageSheet.appendRow(["Key", "Value", "LastUpdated"]);
+    storageSheet.setFrozenRows(1);
   }
 
-  // Log the activity to the specific user sheet
-  sheet.appendRow([new Date(), data.action || "AUTO_SYNC", JSON.stringify(data.userLogs || {})]);
+  var action = data.action;
+  var userId = data.userId;
+  var role = data.role;
+
+  if (action === "SYNC_DATA" || action === "FULL_DIRECTORY_SYNC" || action === "PROVISION_USER") {
+    // 1. Update Global Config (Directory)
+    updateStorage(storageSheet, "GLOBAL_CONFIG", JSON.stringify(data.config));
+
+    // 2. Update Logs
+    // Admin sends EVERYTHING. User sends only their part.
+    if (role === "admin") {
+      updateStorage(storageSheet, "GLOBAL_LOGS", JSON.stringify(data.userLogs));
+    } else {
+      var currentLogs = getStorage(storageSheet, "GLOBAL_LOGS");
+      var logObj = currentLogs ? JSON.parse(currentLogs) : {};
+      logObj[userId] = data.userLogs[userId];
+      updateStorage(storageSheet, "GLOBAL_LOGS", JSON.stringify(logObj));
+    }
+  }
   
   return ContentService.createTextOutput(JSON.stringify({ success: true }))
     .setMimeType(ContentService.MimeType.JSON);
@@ -201,25 +206,43 @@ function doPost(e) {
 
 function doGet(e) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var configSheet = ss.getSheetByName("SYSTEM_CONFIG");
-  var logs = {};
+  var storageSheet = ss.getSheetByName("SYSTEM_DATA");
+  
   var config = {};
-  
-  if (configSheet) {
-    var raw = configSheet.getRange(2, 1).getValue();
-    if (raw) config = JSON.parse(raw);
+  var userLogs = {};
+
+  if (storageSheet) {
+    var rawConfig = getStorage(storageSheet, "GLOBAL_CONFIG");
+    var rawLogs = getStorage(storageSheet, "GLOBAL_LOGS");
+    
+    if (rawConfig) config = JSON.parse(rawConfig);
+    if (rawLogs) userLogs = JSON.parse(rawLogs);
   }
   
-  // Optionally fetch logs from the user's specific sheet
-  var userId = e.parameter.userId;
-  var userSheet = ss.getSheetByName(userId);
-  if (userSheet) {
-    // Basic implementation: returns latest state
-    // For a real app, you'd parse rows to reconstruct the userLogs object
+  return ContentService.createTextOutput(JSON.stringify({ 
+    config: config, 
+    userLogs: userLogs 
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
+function updateStorage(sheet, key, value) {
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][0] == key) {
+      sheet.getRange(i + 1, 2).setValue(value);
+      sheet.getRange(i + 1, 3).setValue(new Date());
+      return;
+    }
   }
-  
-  return ContentService.createTextOutput(JSON.stringify({ config: config, userLogs: {} }))
-    .setMimeType(ContentService.MimeType.JSON);
+  sheet.appendRow([key, value, new Date()]);
+}
+
+function getStorage(sheet, key) {
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][0] == key) return data[i][1];
+  }
+  return null;
 }
   `.trim();
 
@@ -250,10 +273,11 @@ function doGet(e) {
                 <input 
                   type="url" 
                   value={generalData.sheetUrl}
-                  onChange={(e) => setGeneralData({...generalData, sheetUrl: e.target.value})}
-                  className={`w-full border rounded-2xl pl-11 pr-4 py-3 text-sm outline-none transition-all ${isDark ? 'bg-slate-950 border-slate-800 text-white focus:border-indigo-500' : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-indigo-600'}`}
+                  readOnly
+                  className={`w-full border rounded-2xl pl-11 pr-4 py-3 text-sm outline-none transition-all cursor-not-allowed opacity-60 ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}
                 />
               </div>
+              <p className="text-[9px] text-indigo-400 font-bold uppercase tracking-widest ml-1">Hardcoded Node Active</p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -276,7 +300,7 @@ function doGet(e) {
               </div>
             </div>
             <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-4 rounded-2xl uppercase tracking-wider text-xs shadow-xl transition-all">
-              Save Infrastructure Config
+              Update Local Instance
             </button>
           </form>
         </div>
@@ -288,7 +312,7 @@ function doGet(e) {
           </h3>
           <form onSubmit={handleProvision} className="space-y-4">
             <div className="space-y-1">
-              <label className="text-[9px] text-slate-500 font-black uppercase tracking-widest ml-1">User Identifier (Creates Sheet Tab)</label>
+              <label className="text-[9px] text-slate-500 font-black uppercase tracking-widest ml-1">User Identifier</label>
               <input 
                 placeholder="e.g. JOHN_DOE" 
                 required
@@ -325,12 +349,12 @@ function doGet(e) {
               <option value="admin">System Administrator</option>
             </select>
             <button type="submit" disabled={isProvisioning} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-4 rounded-2xl uppercase tracking-wider text-xs shadow-xl transition-all">
-              {isProvisioning ? <RefreshCw className="animate-spin mx-auto" size={16} /> : 'Create Identity & Provision Sheet'}
+              {isProvisioning ? <RefreshCw className="animate-spin mx-auto" size={16} /> : 'Create Identity & Sync'}
             </button>
             {provisionSuccess && (
               <div className="flex items-center justify-center gap-2 text-emerald-400 animate-pulse">
                 <Check size={14} />
-                <p className="text-[10px] font-bold uppercase tracking-widest">Sheet Routing Initialized</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest">User Successfully Provisioned</p>
               </div>
             )}
           </form>
@@ -347,19 +371,19 @@ function doGet(e) {
             onClick={() => setShowScript(!showScript)}
             className="text-xs text-indigo-400 font-bold hover:underline"
           >
-            {showScript ? 'Hide Logic' : 'View GAS Template'}
+            {showScript ? 'Hide Logic' : 'View High-Performance Template'}
           </button>
         </div>
         
         {showScript ? (
           <div className="space-y-4">
-            <p className="text-xs text-slate-500 font-medium">Use this Google Apps Script code to enable per-user sheet creation and routing.</p>
+            <p className="text-xs text-slate-500 font-medium">This script enables full JSON state synchronization, ensuring every PC/browser always has the latest data.</p>
             <pre className="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-[10px] font-mono text-indigo-300 overflow-x-auto whitespace-pre">
               {GAS_TEMPLATE}
             </pre>
           </div>
         ) : (
-          <p className="text-xs text-slate-500">The current architecture supports automatic sheet creation for every user ID. Ensure your Google Apps Script is configured with the multi-tab routing logic.</p>
+          <p className="text-xs text-slate-500">The current architecture supports automatic JSON blob syncing for instant cross-device updates. Ensure your Google Apps Script is updated to v3.</p>
         )}
       </div>
 
@@ -375,7 +399,7 @@ function doGet(e) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="space-y-4">
             <p className="text-xs text-slate-500 font-medium leading-relaxed">
-              Export your entire environment state including all user logs, configuration profiles, and credentials to a single JSON file for offline storage.
+              Export your entire environment state including all user logs and configuration to a single JSON file for offline storage.
             </p>
             <button 
               onClick={handleBackup}
@@ -387,7 +411,7 @@ function doGet(e) {
 
           <div className="space-y-4">
             <p className="text-xs text-slate-500 font-medium leading-relaxed">
-              Restore the system to a previous state using a backup file. <span className="text-red-400 font-bold uppercase tracking-tighter">Action irreversible:</span> This will overwrite current live data.
+              Restore the system to a previous state using a backup file. Overwrites current session.
             </p>
             <div className="flex items-center gap-3">
               <input 
