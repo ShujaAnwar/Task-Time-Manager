@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   LayoutDashboard, 
   Clock, 
@@ -12,11 +12,9 @@ import {
   Cloud,
   CloudOff,
   RefreshCw,
-  AlertCircle,
-  Users as UsersIcon,
   Activity
 } from 'lucide-react';
-import { DayLog, AppState, Task, UserProfile } from './types';
+import { DayLog, AppState, UserProfile } from './types';
 import { getTodayStr } from './utils/time';
 import AttendancePanel from './components/AttendancePanel';
 import TaskPanel from './components/TaskPanel';
@@ -77,7 +75,6 @@ const App: React.FC = () => {
       
       setSyncStatus('syncing');
       try {
-        // Admins fetch global state, Users fetch only their specific ID
         const urlWithIdentity = `${state.config.sheetUrl}?userId=${encodeURIComponent(state.currentUser.id)}&role=${state.currentUser.role}`;
         const response = await fetch(urlWithIdentity);
         
@@ -85,19 +82,15 @@ const App: React.FC = () => {
           const cloudData = await response.json();
           if (cloudData) {
              setState(prev => {
-               // Only merge userLogs if we actually got them
                const newUserLogs = isAdmin ? { ...prev.userLogs, ...cloudData.userLogs } : { ...prev.userLogs, [state.currentUser!.id]: cloudData.userLogs?.[state.currentUser!.id] || {} };
                
                return {
                 ...prev,
                 userLogs: newUserLogs,
-                // For users, merge config. For admins, prioritize local config (which they manage) unless cloud is newer
                 config: { 
                   ...prev.config, 
                   ...cloudData.config, 
-                  // Never overwrite the sheetUrl we currently have locally
                   sheetUrl: prev.config.sheetUrl,
-                  // If admin, keep the users list they just edited locally
                   users: isAdmin ? prev.config.users : (cloudData.config?.users || prev.config.users)
                 }
               };
@@ -106,12 +99,10 @@ const App: React.FC = () => {
           }
         }
       } catch (err) {
-        console.error("Cloud Fetch Error:", err);
         setSyncStatus('error');
       }
     };
 
-    // Only auto-load once on mount/login
     loadFromCloud();
   }, [state.isAuthenticated, state.config.sheetUrl, state.currentUser?.id]);
 
@@ -126,9 +117,11 @@ const App: React.FC = () => {
         await fetch(state.config.sheetUrl, {
           method: 'POST',
           body: JSON.stringify({
+            action: 'SYNC_DATA',
             userId: state.currentUser.id,
+            targetUserId: state.currentUser.id, // Routing hint for the backend
             role: state.currentUser.role,
-            userLogs: state.userLogs,
+            userLogs: isAdmin ? state.userLogs : { [state.currentUser.id]: state.userLogs[state.currentUser.id] },
             config: state.config,
             lastUpdated: new Date().toISOString()
           })
@@ -192,18 +185,19 @@ const App: React.FC = () => {
     });
   };
 
-  const triggerManualSync = async () => {
+  const triggerManualSync = async (specialAction?: string, extraData?: any) => {
     if (!state.config.sheetUrl || !state.currentUser) return;
     setSyncStatus('syncing');
     try {
       await fetch(state.config.sheetUrl, {
         method: 'POST',
         body: JSON.stringify({
+          action: specialAction || 'MANUAL_SYNC',
           userId: state.currentUser.id,
           role: state.currentUser.role,
           userLogs: state.userLogs,
           config: state.config,
-          manualTrigger: true
+          ...extraData
         })
       });
       setSyncStatus('connected');

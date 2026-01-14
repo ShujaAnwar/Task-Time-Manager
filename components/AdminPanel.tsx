@@ -19,7 +19,9 @@ import {
   Trash2,
   Settings,
   FileJson,
-  Radio
+  Radio,
+  Code,
+  Check
 } from 'lucide-react';
 import { AppState, UserProfile } from '../types';
 
@@ -27,7 +29,7 @@ interface Props {
   state: AppState;
   updateConfig: (newConfig: Partial<AppState['config']>) => void;
   restoreFullState?: (newState: Partial<AppState>) => void;
-  triggerManualSync?: () => Promise<void>;
+  triggerManualSync?: (action?: string, extra?: any) => Promise<void>;
   theme?: 'dark' | 'light';
 }
 
@@ -36,6 +38,7 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, tr
   const [provisionSuccess, setProvisionSuccess] = useState(false);
   const [isProvisioning, setIsProvisioning] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [showScript, setShowScript] = useState(false);
   const [restoreStatus, setRestoreStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -70,23 +73,18 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, tr
     
     setIsProvisioning(true);
     const newUser: UserProfile = {
-      id: provisionData.newUserId,
+      id: provisionData.newUserId.toUpperCase().replace(/\s/g, '_'),
       name: provisionData.newUserName || provisionData.newUserId,
       password: provisionData.newPassword,
       role: provisionData.role,
       createdAt: Date.now()
     };
 
-    // Update local state
     updateConfig({ users: [...state.config.users, newUser] });
     
-    // Attempt immediate manual sync if URL exists
-    // Note: React state updates are async, so triggerManualSync might send previous state
-    // But the debounced sync in App.tsx will pick up the new user within 2 seconds.
     if (state.config.sheetUrl && triggerManualSync) {
-      setTimeout(async () => {
-        await triggerManualSync();
-      }, 100);
+      // Explicit action to create a new sheet for this user
+      await triggerManualSync('PROVISION_USER', { targetUser: newUser });
     }
 
     setTimeout(() => {
@@ -99,7 +97,7 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, tr
 
   const removeUser = (userId: string) => {
     if (userId === state.currentUser?.id) return alert("Cannot remove active admin session.");
-    if (confirm(`Are you sure you want to remove ${userId}?`)) {
+    if (confirm(`Are you sure you want to remove ${userId}? This will not delete their historical Google Sheet.`)) {
       updateConfig({ users: state.config.users.filter(u => u.id !== userId) });
     }
   };
@@ -109,7 +107,7 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, tr
       userLogs: state.userLogs,
       config: state.config,
       exportDate: new Date().toISOString(),
-      version: "2.0.0"
+      version: "2.1.0"
     };
     const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -122,20 +120,12 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, tr
     URL.revokeObjectURL(url);
   };
 
+  // Fix: Added handleRestoreClick to programmatically trigger hidden file input
   const handleRestoreClick = () => {
     fileInputRef.current?.click();
   };
 
-  const handleManualSync = async () => {
-    if (!triggerManualSync) return;
-    setIsSyncing(true);
-    try {
-      await triggerManualSync();
-    } finally {
-      setTimeout(() => setIsSyncing(false), 1000);
-    }
-  };
-
+  // Fix: Added handleFileChange to read and parse the uploaded JSON backup file
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -144,25 +134,94 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, tr
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const content = event.target?.result as string;
-        const parsed = JSON.parse(content);
-        
-        if (parsed.userLogs && parsed.config && restoreFullState) {
-          restoreFullState(parsed);
+        const json = JSON.parse(event.target?.result as string);
+        if (json.userLogs && json.config && restoreFullState) {
+          restoreFullState(json);
           setRestoreStatus('success');
+          setTimeout(() => setRestoreStatus('idle'), 3000);
         } else {
-          throw new Error("Invalid backup format");
+          throw new Error("Invalid schema");
         }
       } catch (err) {
-        console.error("Restore failed:", err);
         setRestoreStatus('error');
-      } finally {
         setTimeout(() => setRestoreStatus('idle'), 3000);
-        if (fileInputRef.current) fileInputRef.current.value = '';
       }
     };
+    reader.onerror = () => {
+      setRestoreStatus('error');
+      setTimeout(() => setRestoreStatus('idle'), 3000);
+    };
     reader.readAsText(file);
+    // Reset the input value so the same file can be uploaded again if needed
+    e.target.value = '';
   };
+
+  const handleManualSync = async () => {
+    if (!triggerManualSync) return;
+    setIsSyncing(true);
+    try {
+      await triggerManualSync('FULL_DIRECTORY_SYNC');
+    } finally {
+      setTimeout(() => setIsSyncing(false), 1000);
+    }
+  };
+
+  const GAS_TEMPLATE = `
+/**
+ * GOOGLE APPS SCRIPT BACKEND
+ * Paste this into your Script Editor
+ */
+function doPost(e) {
+  var data = JSON.parse(e.postData.contents);
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheetName = data.targetUserId || data.userId || "General_Logs";
+  
+  // Handle provisioning or sync
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+    // Add Headers
+    sheet.appendRow(["Timestamp", "Action", "Raw Payload"]);
+  }
+  
+  // If provisioning a user, we might want to also update the master list
+  if (data.action === "PROVISION_USER" || data.action === "FULL_DIRECTORY_SYNC") {
+    var configSheet = ss.getSheetByName("SYSTEM_CONFIG") || ss.insertSheet("SYSTEM_CONFIG");
+    configSheet.clear();
+    configSheet.appendRow(["Config Data"]);
+    configSheet.appendRow([JSON.stringify(data.config)]);
+  }
+
+  // Log the activity to the specific user sheet
+  sheet.appendRow([new Date(), data.action || "AUTO_SYNC", JSON.stringify(data.userLogs || {})]);
+  
+  return ContentService.createTextOutput(JSON.stringify({ success: true }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function doGet(e) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var configSheet = ss.getSheetByName("SYSTEM_CONFIG");
+  var logs = {};
+  var config = {};
+  
+  if (configSheet) {
+    var raw = configSheet.getRange(2, 1).getValue();
+    if (raw) config = JSON.parse(raw);
+  }
+  
+  // Optionally fetch logs from the user's specific sheet
+  var userId = e.parameter.userId;
+  var userSheet = ss.getSheetByName(userId);
+  if (userSheet) {
+    // Basic implementation: returns latest state
+    // For a real app, you'd parse rows to reconstruct the userLogs object
+  }
+  
+  return ContentService.createTextOutput(JSON.stringify({ config: config, userLogs: {} }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+  `.trim();
 
   return (
     <div className="space-y-8 pb-12">
@@ -228,13 +287,16 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, tr
             <UserPlus size={20} className="text-emerald-400" /> Provision New Account
           </h3>
           <form onSubmit={handleProvision} className="space-y-4">
-            <input 
-              placeholder="User ID (Login Username)" 
-              required
-              value={provisionData.newUserId}
-              onChange={e => setProvisionData({...provisionData, newUserId: e.target.value})}
-              className={`w-full border rounded-2xl px-4 py-3 text-sm outline-none ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200'}`}
-            />
+            <div className="space-y-1">
+              <label className="text-[9px] text-slate-500 font-black uppercase tracking-widest ml-1">User Identifier (Creates Sheet Tab)</label>
+              <input 
+                placeholder="e.g. JOHN_DOE" 
+                required
+                value={provisionData.newUserId}
+                onChange={e => setProvisionData({...provisionData, newUserId: e.target.value})}
+                className={`w-full border rounded-2xl px-4 py-3 text-sm outline-none ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200'}`}
+              />
+            </div>
             <input 
               placeholder="Full Name" 
               value={provisionData.newUserName}
@@ -244,7 +306,7 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, tr
             <div className="relative">
               <input 
                 type={showNewPassword ? "text" : "password"}
-                placeholder="Password" 
+                placeholder="Set Initial Password" 
                 required
                 value={provisionData.newPassword}
                 onChange={e => setProvisionData({...provisionData, newPassword: e.target.value})}
@@ -263,11 +325,42 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, tr
               <option value="admin">System Administrator</option>
             </select>
             <button type="submit" disabled={isProvisioning} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-4 rounded-2xl uppercase tracking-wider text-xs shadow-xl transition-all">
-              {isProvisioning ? <RefreshCw className="animate-spin mx-auto" size={16} /> : 'Create & Sync Identity'}
+              {isProvisioning ? <RefreshCw className="animate-spin mx-auto" size={16} /> : 'Create Identity & Provision Sheet'}
             </button>
-            {provisionSuccess && <p className="text-[10px] text-emerald-400 font-bold text-center uppercase tracking-widest animate-pulse">Account Broadcasted Successfully</p>}
+            {provisionSuccess && (
+              <div className="flex items-center justify-center gap-2 text-emerald-400 animate-pulse">
+                <Check size={14} />
+                <p className="text-[10px] font-bold uppercase tracking-widest">Sheet Routing Initialized</p>
+              </div>
+            )}
           </form>
         </div>
+      </div>
+
+      {/* Cloud Script Guide */}
+      <div className={`rounded-[2.5rem] p-8 border backdrop-blur-md transition-all ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-lg font-bold flex items-center gap-2.5 text-white">
+            <Code size={20} className="text-indigo-400" /> Cloud Script Configuration
+          </h3>
+          <button 
+            onClick={() => setShowScript(!showScript)}
+            className="text-xs text-indigo-400 font-bold hover:underline"
+          >
+            {showScript ? 'Hide Logic' : 'View GAS Template'}
+          </button>
+        </div>
+        
+        {showScript ? (
+          <div className="space-y-4">
+            <p className="text-xs text-slate-500 font-medium">Use this Google Apps Script code to enable per-user sheet creation and routing.</p>
+            <pre className="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-[10px] font-mono text-indigo-300 overflow-x-auto whitespace-pre">
+              {GAS_TEMPLATE}
+            </pre>
+          </div>
+        ) : (
+          <p className="text-xs text-slate-500">The current architecture supports automatic sheet creation for every user ID. Ensure your Google Apps Script is configured with the multi-tab routing logic.</p>
+        )}
       </div>
 
       {/* Backup & Restore Utility */}
