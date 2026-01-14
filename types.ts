@@ -29,11 +29,14 @@ export interface DayLog {
 
 export interface AppState {
   isAuthenticated: boolean;
+  theme: 'dark' | 'light';
+  rememberMe: boolean;
   logs: Record<string, DayLog>; // Key: date string
   config: {
     officeStartTime: string; // "09:00"
     targetWorkingHours: number; // 8
     userName: string;
+    userId: string;
     systemPassword: string; // Stored locally for demo
   };
 }
