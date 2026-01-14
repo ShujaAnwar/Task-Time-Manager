@@ -39,7 +39,7 @@ const INITIAL_STATE: AppState = {
   isAuthenticated: false,
   currentUser: undefined,
   theme: 'dark',
-  rememberMe: false,
+  rememberMe: true,
   userLogs: {},
   config: {
     officeStartTime: "09:00",
@@ -53,8 +53,13 @@ const App: React.FC = () => {
   const [state, setState] = useState<AppState>(() => {
     const saved = localStorage.getItem('task_time_v2');
     if (saved) {
-      const parsed = JSON.parse(saved);
-      return { ...parsed, isAuthenticated: parsed.rememberMe ? parsed.isAuthenticated : false };
+      try {
+        const parsed = JSON.parse(saved);
+        // Ensure user stays logged in if they were authenticated
+        return { ...parsed };
+      } catch (e) {
+        return INITIAL_STATE;
+      }
     }
     return INITIAL_STATE;
   });
@@ -104,7 +109,6 @@ const App: React.FC = () => {
         await fetch(state.config.sheetUrl, {
           method: 'POST',
           body: JSON.stringify({
-            // Send everything; script determines tab by userId inside state
             userLogs: state.userLogs,
             config: state.config,
             lastUpdated: new Date().toISOString()
@@ -125,14 +129,15 @@ const App: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
+  // Persistence Effect: Always save the whole state to local storage
   useEffect(() => {
     localStorage.setItem('task_time_v2', JSON.stringify(state));
     document.documentElement.classList.toggle('dark', state.theme === 'dark');
     document.body.className = state.theme === 'dark' ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900';
-  }, [state.theme, state.rememberMe, state.isAuthenticated]);
+  }, [state]);
 
   const handleLogin = (userId: string, password: string, remember: boolean) => {
-    const user = state.config.users.find(u => (u.id === userId || u.name === userId) && u.password === password);
+    const user = state.config.users.find(u => (u.id.toUpperCase() === userId.toUpperCase() || u.name.toUpperCase() === userId.toUpperCase()) && u.password === password);
     if (user) {
       setState(prev => ({ 
         ...prev, 
@@ -146,7 +151,7 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
-    setState(prev => ({ ...prev, isAuthenticated: false, rememberMe: false, currentUser: undefined }));
+    setState(prev => ({ ...prev, isAuthenticated: false, currentUser: undefined }));
   };
 
   const updateConfig = (newConfig: Partial<AppState['config']>) => {

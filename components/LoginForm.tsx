@@ -10,7 +10,7 @@ interface Props {
 const LoginForm: React.FC<Props> = ({ onLogin, defaultUserId = '' }) => {
   const [userId, setUserId] = useState(defaultUserId);
   const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true); // Default to true for persistent sessions
   const [error, setError] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
