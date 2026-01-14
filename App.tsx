@@ -34,6 +34,7 @@ const DEFAULT_ADMIN: UserProfile = {
   createdAt: Date.now()
 };
 
+// This URL is the "Centralized Database" endpoint (Google Apps Script)
 const BUILTIN_SHEET_URL = "https://script.google.com/macros/s/AKfycbzEePFE7dsyv-AAIkp9dbwIpu02Ig-qU8UZNDiH4XpDsHeizejr9nfreCeulkdeH2-nQw/exec";
 
 const INITIAL_STATE: AppState = {
@@ -56,8 +57,13 @@ const App: React.FC = () => {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (!parsed.config.sheetUrl) parsed.config.sheetUrl = BUILTIN_SHEET_URL;
-        return { ...parsed, isAuthenticated: false, currentUser: undefined }; // Reset auth on load for safety
+        // Force re-auth and re-sync on refresh for security and data integrity
+        return { 
+          ...parsed, 
+          isAuthenticated: false, 
+          currentUser: undefined,
+          config: { ...parsed.config, sheetUrl: parsed.config.sheetUrl || BUILTIN_SHEET_URL }
+        };
       } catch (e) {
         return INITIAL_STATE;
       }
@@ -73,64 +79,57 @@ const App: React.FC = () => {
 
   const isAdmin = state.currentUser?.role === 'admin';
 
-  // Cloud Sync: Fetch Data (Hydration)
-  // This is the CRITICAL part for cross-browser sync
+  // HYDRATION: Fetch the "Single Source of Truth" from the Centralized Database (Google Sheet)
   useEffect(() => {
     const loadFromCloud = async () => {
       if (!state.config.sheetUrl || !state.isAuthenticated || !state.currentUser || isHydrated) return;
       
       setSyncStatus('hydrating');
       try {
-        const urlWithIdentity = `${state.config.sheetUrl}?userId=${encodeURIComponent(state.currentUser.id)}&role=${state.currentUser.role}&t=${Date.now()}`;
-        const response = await fetch(urlWithIdentity);
+        const url = `${state.config.sheetUrl}?userId=${encodeURIComponent(state.currentUser.id)}&role=${state.currentUser.role}&t=${Date.now()}`;
+        const response = await fetch(url);
         
         if (response.ok) {
           const cloudData = await response.json();
-          console.log("Cloud Hydration Data Received:", cloudData);
+          console.log("Cloud Data Hydrated:", cloudData);
           
-          if (cloudData) {
-            setState(prev => {
-              const updatedUserLogs = { ...prev.userLogs };
-              
-              // If we found data in the cloud, it is the absolute source of truth
-              if (cloudData.userLogs) {
-                if (isAdmin) {
-                  // Admin merges everything
-                  Object.assign(updatedUserLogs, cloudData.userLogs);
-                } else {
-                  // Standard user only updates their specific log
-                  const myLogs = cloudData.userLogs[state.currentUser!.id];
-                  if (myLogs) {
-                    updatedUserLogs[state.currentUser!.id] = myLogs;
-                  }
+          setState(prev => {
+            const updatedUserLogs = { ...prev.userLogs };
+            
+            // Centralized database returns logs for this user (or all if admin)
+            if (cloudData.userLogs) {
+              if (isAdmin) {
+                // Admin aggregates everything
+                Object.assign(updatedUserLogs, cloudData.userLogs);
+              } else {
+                // Standard users only receive their own dedicated tab data
+                const myLogs = cloudData.userLogs[state.currentUser!.id];
+                if (myLogs) {
+                  updatedUserLogs[state.currentUser!.id] = myLogs;
                 }
               }
+            }
 
-              return {
-                ...prev,
-                userLogs: updatedUserLogs,
-                config: { 
-                  ...prev.config, 
-                  ...(cloudData.config || {}),
-                  // Never overwrite the sheetUrl from cloud unless it's valid
-                  sheetUrl: cloudData.config?.sheetUrl || BUILTIN_SHEET_URL 
-                }
-              };
-            });
-            setIsHydrated(true);
-            setSyncStatus('connected');
-          }
+            return {
+              ...prev,
+              userLogs: updatedUserLogs,
+              config: { 
+                ...prev.config, 
+                ...(cloudData.config || {}),
+                sheetUrl: prev.config.sheetUrl // Preserve local URL config
+              }
+            };
+          });
+          setIsHydrated(true);
+          setSyncStatus('connected');
         } else {
           setSyncStatus('error');
-          // If no data exists yet (new user), we consider it "hydrated" as empty
-          if (response.status === 404 || response.status === 204) {
-            setIsHydrated(true);
-          }
+          // If no data exists (first time), consider it hydrated as empty
+          if (response.status === 404) setIsHydrated(true);
         }
       } catch (err) {
         console.error("Hydration failed:", err);
         setSyncStatus('error');
-        // Still allow the user to work locally but warn them
       }
     };
 
@@ -139,22 +138,20 @@ const App: React.FC = () => {
     }
   }, [state.isAuthenticated, isHydrated, state.currentUser, state.config.sheetUrl, isAdmin]);
 
-  // Cloud Sync: Push Data
+  // SYNC: Push local updates to the Centralized Database
   useEffect(() => {
     const saveToCloud = async () => {
-      // PREVENT DATA LOSS: Never save to cloud if we haven't successfully pulled first.
-      // This stops a fresh browser (with 0 logs) from overwriting the Google Sheet.
+      // DONT OVERWRITE: Never push to cloud until we've pulled the current state.
       if (!state.config.sheetUrl || !state.isAuthenticated || !state.currentUser || !isHydrated) return;
       
       isSyncingRef.current = true;
       setSyncStatus('syncing');
       try {
-        // Prepare the payload based on role
         const payload = {
           action: 'SYNC_DATA',
           userId: state.currentUser.id,
           role: state.currentUser.role,
-          // Only send the logged in user's data if they are not admin
+          // Only send the current user's data unless admin
           userLogs: isAdmin ? state.userLogs : { [state.currentUser.id]: state.userLogs[state.currentUser.id] || {} },
           config: state.config,
           lastUpdated: new Date().toISOString()
@@ -167,15 +164,13 @@ const App: React.FC = () => {
         });
         setSyncStatus('connected');
       } catch (err) {
-        console.error("Sync failed:", err);
         setSyncStatus('error');
       } finally {
         isSyncingRef.current = false;
       }
     };
 
-    // Debounce to avoid hitting GAS rate limits
-    const timeoutId = setTimeout(saveToCloud, 5000);
+    const timeoutId = setTimeout(saveToCloud, 3000);
     return () => clearTimeout(timeoutId);
   }, [state.userLogs, state.config, state.isAuthenticated, isHydrated, state.currentUser, isAdmin]);
 
@@ -193,7 +188,7 @@ const App: React.FC = () => {
   const handleLogin = (userId: string, password: string, remember: boolean) => {
     const user = state.config.users.find(u => (u.id.toUpperCase() === userId.toUpperCase() || u.name.toUpperCase() === userId.toUpperCase()) && u.password === password);
     if (user) {
-      setIsHydrated(false); // Force fresh cloud pull on every login
+      setIsHydrated(false); // Force fresh cloud hydration on every login
       setState(prev => ({ 
         ...prev, 
         isAuthenticated: true, 
@@ -322,7 +317,7 @@ const App: React.FC = () => {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-y-auto">
+      <main className={`flex-1 overflow-y-auto ${isDark ? 'bg-slate-950' : 'bg-slate-50'}`}>
         <header className={`sticky top-0 z-30 flex items-center justify-between px-6 py-4 border-b backdrop-blur-md ${isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-white/80 border-slate-200'}`}>
           <h2 className="text-lg font-bold">{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}</h2>
           <div className="flex items-center gap-4">
@@ -345,14 +340,12 @@ const App: React.FC = () => {
         </header>
 
         <div className="p-6 space-y-6 max-w-7xl mx-auto">
-          {!isHydrated && state.isAuthenticated && (
+          {!isHydrated && state.isAuthenticated ? (
             <div className="flex flex-col items-center justify-center py-24 animate-pulse">
               <RefreshCw size={48} className="text-indigo-500 animate-spin mb-4" />
-              <p className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500">Syncing Cloud Identity...</p>
+              <p className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500">Syncing Cloud Database...</p>
             </div>
-          )}
-
-          {isHydrated && (
+          ) : (
             <>
               {activeTab === 'overview' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
