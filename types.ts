@@ -27,17 +27,25 @@ export interface DayLog {
   tasks: Task[];
 }
 
+export interface UserProfile {
+  id: string;
+  name: string;
+  password: string;
+  role: 'admin' | 'user';
+  createdAt: number;
+}
+
 export interface AppState {
   isAuthenticated: boolean;
+  currentUser?: UserProfile;
   theme: 'dark' | 'light';
   rememberMe: boolean;
-  logs: Record<string, DayLog>; // Key: date string
+  // userLogs[userId][date] = DayLog
+  userLogs: Record<string, Record<string, DayLog>>;
   config: {
     officeStartTime: string; // "09:00"
     targetWorkingHours: number; // 8
-    userName: string;
-    userId: string;
-    systemPassword: string; // Stored locally for demo
     sheetUrl?: string; // Google Apps Script Web App URL
+    users: UserProfile[]; // Master user list managed by admin
   };
 }

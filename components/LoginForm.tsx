@@ -116,15 +116,15 @@ const LoginForm: React.FC<Props> = ({ onLogin, defaultUserId = '' }) => {
             <div className="p-4 bg-indigo-500/5 border border-indigo-500/10 rounded-2xl flex items-start gap-3">
               <Info size={16} className="text-indigo-400 shrink-0 mt-0.5" />
               <div className="space-y-1">
-                <p className="text-[9px] text-indigo-300 font-black uppercase tracking-widest">System Credentials</p>
+                <p className="text-[9px] text-indigo-300 font-black uppercase tracking-widest">Master Identity</p>
                 <p className="text-[10px] text-indigo-300/60 font-medium">
-                  Default ID: <span className="text-indigo-400 font-bold">ALX-9204</span> / Pass: <span className="text-indigo-400 font-bold">admin</span>
+                  Default ID: <span className="text-indigo-400 font-bold">ADMIN</span> / Password: <span className="text-indigo-400 font-bold">admin</span>
                 </p>
               </div>
             </div>
 
             <div className="pt-4 border-t border-slate-800/50 flex flex-col items-center gap-3">
-              <p className="text-[9px] text-slate-600 font-bold uppercase tracking-widest">Shuja Anwar Ahmed Hashmi © 2024</p>
+              <p className="text-[9px] text-slate-600 font-bold uppercase tracking-widest">Cloud Database Node Connected</p>
             </div>
           </div>
         </form>
