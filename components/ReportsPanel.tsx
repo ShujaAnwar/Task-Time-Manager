@@ -72,31 +72,22 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
       let y = 0;
 
       const drawReportHeader = (pageNum: number) => {
-        // Branding Bar
-        doc.setFillColor(15, 23, 42); // Slate-900
+        doc.setFillColor(15, 23, 42); 
         doc.rect(0, 0, pageWidth, 45, 'F');
-        
-        // Report Title
         doc.setTextColor(255, 255, 255);
         doc.setFontSize(22);
         doc.setFont('helvetica', 'bold');
         doc.text('DETAILED WORKLOAD AUDIT', margin, 22);
-        
-        // User Branding
         doc.setFontSize(10);
         doc.setFont('helvetica', 'bold');
-        doc.setTextColor(99, 102, 241); // Indigo-400
+        doc.setTextColor(99, 102, 241); 
         doc.text(`AUDITEE: ${user?.name?.toUpperCase() || 'SYSTEM USER'}`, margin, 32);
-        
         doc.setFontSize(8);
         doc.setFont('helvetica', 'normal');
-        doc.setTextColor(148, 163, 184); // Slate-400
+        doc.setTextColor(148, 163, 184); 
         doc.text(`NODE ID: ${user?.id || 'UNASSIGNED'}`, margin, 38);
-        
-        // Metadata
         doc.text(`GENERATED: ${new Date().toLocaleString()}`, pageWidth - margin - 55, 32);
         doc.text(`PERIOD: ${monthName} ${currentYear}`, pageWidth - margin - 55, 38);
-        
         if (pageNum > 1) {
           doc.text(`Page ${pageNum}`, pageWidth - margin - 15, 10);
         }
@@ -105,7 +96,7 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
       drawReportHeader(1);
       y = 55;
 
-      // Executive Summary Boxes
+      // Executive Summary
       doc.setDrawColor(226, 232, 240);
       doc.setFillColor(248, 250, 252);
       const gridW = (pageWidth - (margin * 2) - 10) / 3;
@@ -168,7 +159,6 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
 
       monthlyLogs.forEach((log) => {
         log.tasks.forEach((task) => {
-          // Page overflow check
           if (y > pageHeight - 20) {
             doc.addPage();
             currentPDFPage++;
@@ -179,24 +169,20 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
             doc.setTextColor(31, 41, 55);
           }
 
-          // Alternating row colors
           if (rowCount % 2 === 0) {
             doc.setFillColor(249, 250, 251);
             doc.rect(margin, y, pageWidth - (margin * 2), 10, 'F');
           }
           
           doc.setDrawColor(226, 232, 240);
-          doc.rect(margin, y, pageWidth - (margin * 2), 10); // border for row
+          doc.rect(margin, y, pageWidth - (margin * 2), 10); 
 
           let curX = margin;
-          
-          // Date
           doc.setFontSize(7);
           doc.text(log.date, curX + 3, y + 6.5);
           doc.line(curX + tableHeaders[0].w, y, curX + tableHeaders[0].w, y + 10);
           curX += tableHeaders[0].w;
           
-          // Description
           doc.setFont('helvetica', 'bold');
           const titleText = task.title.length > 60 ? task.title.substring(0, 57) + "..." : task.title;
           doc.text(titleText, curX + 3, y + 6.5);
@@ -204,42 +190,37 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
           doc.line(curX + tableHeaders[1].w, y, curX + tableHeaders[1].w, y + 10);
           curX += tableHeaders[1].w;
           
-          // Planned
           doc.text(formatMinutesToDisplay(task.duration), curX + 3, y + 6.5);
           doc.line(curX + tableHeaders[2].w, y, curX + tableHeaders[2].w, y + 10);
           curX += tableHeaders[2].w;
           
-          // Actual
           if (task.actualDuration > task.duration) {
-            doc.setTextColor(220, 38, 38); // Red for over
+            doc.setTextColor(220, 38, 38); 
           } else {
-            doc.setTextColor(16, 185, 129); // Green for within
+            doc.setTextColor(16, 185, 129); 
           }
           doc.text(formatMinutesToDisplay(task.actualDuration), curX + 3, y + 6.5);
           doc.setTextColor(31, 41, 55);
           doc.line(curX + tableHeaders[3].w, y, curX + tableHeaders[3].w, y + 10);
           curX += tableHeaders[3].w;
           
-          // Status
           doc.setFontSize(6);
-          const statusText = task.status.toUpperCase();
-          doc.text(statusText, curX + 3, y + 6.5);
+          doc.text(task.status.toUpperCase(), curX + 3, y + 6.5);
           
           y += 10;
           rowCount++;
         });
       });
 
-      // Footer
       doc.setFontSize(7);
       doc.setTextColor(148, 163, 184);
       const footerY = pageHeight - 10;
       doc.text('PROPRIETARY PERFORMANCE AUDIT DATA. ALL ENTRIES SECURED VIA SYSTEM TIMESTAMP.', margin, footerY);
       doc.text(`Page ${currentPDFPage}`, pageWidth - margin - 15, footerY);
 
-      doc.save(`Detailed_Audit_${user?.id || 'User'}_${monthName}_${currentYear}.pdf`);
+      doc.save(`Task_Audit_${user?.id || 'User'}_${monthName}_${currentYear}.pdf`);
     } catch (err) {
-      console.error("Audit export failed:", err);
+      console.error("PDF export failed:", err);
     } finally {
       setIsExporting(null);
     }
@@ -255,12 +236,11 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
         "Planned Minutes": t.duration,
         "Actual Minutes": t.actualDuration,
         "Difference": t.actualDuration - t.duration,
-        "Status": t.status,
-        "Efficiency %": t.duration > 0 ? ((t.duration / t.actualDuration) * 100).toFixed(1) : 100
+        "Status": t.status
       })));
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tasksData), "Detailed Task Log");
-      XLSX.writeFile(wb, `Detailed_Audit_${user?.id || 'User'}_${getTodayStr()}.xlsx`);
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tasksData), "Task Log");
+      XLSX.writeFile(wb, `Audit_${user?.id || 'User'}_${getTodayStr()}.xlsx`);
     } catch (error) {
       console.error(error);
     } finally {
@@ -279,9 +259,9 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
             <div className="p-2.5 bg-indigo-600/20 text-indigo-400 rounded-2xl border border-indigo-500/20 shadow-inner">
               <BarChart2 size={22} />
             </div>
-            Reporting Intelligence
+            Workforce Intelligence
           </h3>
-          <p className="text-xs text-slate-500 mt-1">Audit-ready detailed metrics for granular analysis</p>
+          <p className="text-xs text-slate-500 mt-1">Granular task performance and time-utilization metrics</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -290,10 +270,10 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
             <button onClick={() => setReportType('monthly')} className={`px-4 py-2 text-[10px] font-black uppercase tracking-[0.15em] rounded-xl transition-all ${reportType === 'monthly' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-600 hover:text-slate-300'}`}>Monthly</button>
           </div>
           <button onClick={exportToPDF} disabled={!!isExporting} className="flex items-center gap-2 px-4 py-2.5 bg-slate-800/80 hover:bg-slate-700 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider border border-slate-700 transition-all active:scale-95 disabled:opacity-50">
-            {isExporting === 'pdf' ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />} Detailed PDF
+            {isExporting === 'pdf' ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />} Task Audit PDF
           </button>
-          <button onClick={exportToExcel} disabled={!!isExporting} className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all shadow-lg shadow-indigo-600/20 active:scale-95 disabled:opacity-50">
-            {isExporting === 'excel' ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />} Data Sheet
+          <button onClick={exportToExcel} disabled={!!isExporting} className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all shadow-lg active:scale-95 disabled:opacity-50">
+            {isExporting === 'excel' ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />} XLS Report
           </button>
         </div>
       </div>
@@ -303,45 +283,33 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="bg-slate-950/50 p-5 rounded-[2rem] border border-slate-800">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Clock size={12} className="text-slate-500" />
-                    <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Shift Start</p>
-                  </div>
-                  <p className="text-2xl font-black text-white tabular-nums">{todayLog.timeIn || '— : —'}</p>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black mb-2">Shift Start</p>
+                  <p className="text-2xl font-black text-white tabular-nums">{todayLog.timeIn || '—'}</p>
                 </div>
                 <div className="bg-slate-950/50 p-5 rounded-[2rem] border border-slate-800">
-                  <div className="flex items-center gap-2 mb-3">
-                    <CheckCircle2 size={12} className="text-slate-500" />
-                    <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Work Logged</p>
-                  </div>
-                  <p className="text-2xl font-black text-white tabular-nums">{formatMinutesToDisplay(todayLog.tasks.reduce((s, t) => s + t.actualDuration, 0))}</p>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black mb-2">Task Time</p>
+                  <p className="text-2xl font-black text-indigo-400 tabular-nums">{formatMinutesToDisplay(todayLog.tasks.reduce((s, t) => s + t.actualDuration, 0))}</p>
                 </div>
                 <div className="bg-slate-950/50 p-5 rounded-[2rem] border border-slate-800">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Calendar size={12} className="text-slate-500" />
-                    <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Duration</p>
-                  </div>
-                  <p className="text-2xl font-black text-indigo-400 tabular-nums">{(todayLog.timeIn && todayLog.timeOut) ? formatMinutesToDisplay(diffMinutes(todayLog.timeIn, todayLog.timeOut)) : '0h 0m'}</p>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black mb-2">Office Hours</p>
+                  <p className="text-2xl font-black text-white tabular-nums">{(todayLog.timeIn && todayLog.timeOut) ? formatMinutesToDisplay(diffMinutes(todayLog.timeIn, todayLog.timeOut)) : '0h 0m'}</p>
                 </div>
                 <div className="bg-slate-950/50 p-5 rounded-[2rem] border border-slate-800">
-                  <div className="flex items-center gap-2 mb-3">
-                    <TrendingUp size={12} className="text-slate-500" />
-                    <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Accuracy</p>
-                  </div>
-                  <p className="text-sm font-black text-emerald-400 uppercase tracking-widest">Optimized</p>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black mb-2">Efficiency</p>
+                  <p className="text-2xl font-black text-emerald-400 uppercase tracking-widest">A-Grade</p>
                 </div>
              </div>
              <div className="bg-slate-950/30 rounded-[2.5rem] border border-slate-800/50 overflow-hidden">
                 <div className="px-6 py-5 bg-slate-950/80 border-b border-slate-800 flex justify-between items-center">
-                  <h4 className="text-[11px] font-black text-white uppercase tracking-[0.2em]">Daily Task Performance Audit</h4>
+                  <h4 className="text-[11px] font-black text-white uppercase tracking-[0.2em]">Daily Output Audit</h4>
                   <span className="text-[10px] font-bold text-slate-500">{todayStr}</span>
                 </div>
                 <div className="p-4 space-y-3">
                   {todayLog.tasks.length === 0 ? (
-                    <div className="p-8 text-center text-slate-600 italic text-sm">No tasks recorded for today.</div>
+                    <div className="p-8 text-center text-slate-600 italic text-sm">No activity recorded for today.</div>
                   ) : (
                     todayLog.tasks.map(t => (
-                      <div key={t.id} className="flex justify-between items-center p-5 bg-slate-900/40 rounded-3xl border border-slate-800/50 hover:bg-slate-800/40 transition-colors">
+                      <div key={t.id} className="flex justify-between items-center p-5 bg-slate-900/40 rounded-3xl border border-slate-800/50 hover:bg-slate-800 transition-colors">
                         <div>
                           <p className="text-sm font-bold text-white">{t.title}</p>
                           <p className={`text-[9px] uppercase font-black tracking-widest mt-1 ${t.status === 'completed' ? 'text-emerald-500' : 'text-amber-500'}`}>{t.status}</p>
@@ -366,29 +334,25 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
           <div className="space-y-10 animate-in fade-in duration-700">
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                <div className="bg-slate-950/50 p-6 rounded-[2.5rem] border border-slate-800">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-black mb-4">Monthly Output</p>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-black mb-4">Output (hrs)</p>
                   <p className="text-3xl font-black text-white">{(stats.totalActual / 60).toFixed(1)}h</p>
                </div>
                <div className="bg-slate-950/50 p-6 rounded-[2.5rem] border border-slate-800">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-black mb-4">Efficiency</p>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-black mb-4">Utilization</p>
                   <p className="text-3xl font-black text-indigo-400">{stats.avgEfficiency.toFixed(0)}%</p>
                </div>
                <div className="bg-slate-950/50 p-6 rounded-[2.5rem] border border-slate-800">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-black mb-4">Discipline</p>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-black mb-4">Punctuality</p>
                   <p className="text-3xl font-black text-white">{monthlyLogs.length > 0 ? (100 - (stats.lateCount / monthlyLogs.length * 100)).toFixed(0) : 0}%</p>
                </div>
                <div className="bg-slate-950/50 p-6 rounded-[2.5rem] border border-slate-800">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-black mb-4">Completed</p>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-black mb-4">Tasks Settle</p>
                   <p className="text-3xl font-black text-emerald-400">{stats.completedTasks}</p>
                </div>
             </div>
             <div className="bg-slate-950/40 p-8 rounded-[3rem] border border-slate-800/50">
                 <div className="flex justify-between items-center mb-10">
                   <h4 className="text-[12px] font-black text-white uppercase tracking-[0.3em] flex items-center gap-2"><TrendingUp size={16} /> Productivity Audit Heatmap</h4>
-                  <div className="flex items-center gap-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-                    <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-indigo-500"></span> Actual</div>
-                    <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-slate-700"></span> Plan</div>
-                  </div>
                 </div>
                 <div className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
@@ -397,7 +361,7 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
                       <XAxis dataKey="name" stroke="#475569" fontSize={11} tick={{fill: '#64748b', fontWeight: 'bold'}} />
                       <YAxis stroke="#475569" fontSize={11} tick={{fill: '#64748b', fontWeight: 'bold'}} />
                       <Tooltip 
-                        contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '16px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.5)' }} 
+                        contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '16px' }} 
                         itemStyle={{ color: '#f8fafc', fontSize: '11px', fontWeight: 'bold' }}
                       />
                       <Area type="monotone" dataKey="actual" stroke="#6366f1" strokeWidth={4} fill="#6366f122" />
@@ -408,13 +372,6 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
             </div>
           </div>
         )}
-        <div className="mt-12 pt-8 border-t border-slate-800/50 flex justify-between text-[9px] text-slate-600 font-bold uppercase tracking-widest">
-          <p>Verified Professional Dataset Executive Intelligence Audit</p>
-          <div className="flex items-center gap-2">
-            <TrendingUp size={10} className="text-emerald-500" />
-            <span>Operational Integrity: 100% Verified</span>
-          </div>
-        </div>
       </div>
     </div>
   );

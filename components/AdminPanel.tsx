@@ -1,17 +1,13 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { 
   ShieldCheck, 
-  User, 
   Database, 
   Eye, 
   EyeOff, 
   UserPlus, 
   RefreshCw, 
   Link2, 
-  Download, 
-  Upload, 
-  Trash2,
   Settings,
   Code,
   Check,
@@ -19,7 +15,8 @@ import {
   Edit2,
   X,
   Save as SaveIcon,
-  ExternalLink
+  ExternalLink,
+  Trash2
 } from 'lucide-react';
 import { AppState, UserProfile } from '../types';
 
@@ -28,22 +25,17 @@ interface Props {
   updateConfig: (newConfig: Partial<AppState['config']>) => void;
   restoreFullState?: (newState: Partial<AppState>) => void;
   triggerManualSync?: (action?: string, extra?: any) => Promise<void>;
-  theme?: 'dark' | 'light';
 }
 
-const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, triggerManualSync, theme = 'dark' }) => {
+const AdminPanel: React.FC<Props> = ({ state, updateConfig, triggerManualSync }) => {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [provisionSuccess, setProvisionSuccess] = useState(false);
   const [isProvisioning, setIsProvisioning] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [showScript, setShowScript] = useState(false);
-  const [restoreStatus, setRestoreStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   
-  // User Editing State
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<UserProfile | null>(null);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [provisionData, setProvisionData] = useState({
     newUserId: '',
@@ -58,20 +50,18 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, tr
     sheetUrl: state.config.sheetUrl || ''
   });
 
-  const isDark = theme === 'dark';
-
   const handleGeneralSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    updateConfig({
+    const updatedConfig = {
       officeStartTime: generalData.officeStartTime,
       targetWorkingHours: parseInt(generalData.targetWorkingHours),
       sheetUrl: generalData.sheetUrl
-    });
+    };
+    updateConfig(updatedConfig);
     
-    // Immediately sync the directory to the new URL
     if (generalData.sheetUrl && triggerManualSync) {
       setIsSyncing(true);
-      await triggerManualSync('SYNC_DATA', { config: { ...state.config, sheetUrl: generalData.sheetUrl } });
+      await triggerManualSync('SYNC_DATA', { config: { ...state.config, ...updatedConfig } });
       setIsSyncing(false);
     }
   };
@@ -101,21 +91,20 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, tr
 
     const updatedUsers = [...state.config.users, newUser];
     
-    // 1. Update local config
-    updateConfig({ users: updatedUsers });
-    
-    // 2. Trigger Cloud Provisioning (Creates the tab)
     if (state.config.sheetUrl && triggerManualSync) {
       try {
-        // We explicitly pass the updated config here to ensure the backend receives the new user list immediately
         await triggerManualSync('PROVISION_USER', { 
           targetUser: newUser, 
           config: { ...state.config, users: updatedUsers } 
         });
+        updateConfig({ users: updatedUsers });
         setProvisionSuccess(true);
       } catch (err) {
         console.error("Cloud provisioning failed:", err);
       }
+    } else {
+      updateConfig({ users: updatedUsers });
+      setProvisionSuccess(true);
     }
 
     setIsProvisioning(false);
@@ -130,24 +119,20 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, tr
 
   const handleSaveUserEdit = async () => {
     if (!editFormData || !editingUserId) return;
-    
     const updatedUsers = state.config.users.map(u => u.id === editingUserId ? editFormData : u);
     updateConfig({ users: updatedUsers });
-    
     if (state.config.sheetUrl && triggerManualSync) {
       await triggerManualSync('SYNC_DATA', { config: { ...state.config, users: updatedUsers } });
     }
-    
     setEditingUserId(null);
     setEditFormData(null);
   };
 
   const removeUser = (userId: string) => {
     if (userId === state.currentUser?.id) return alert("Cannot remove active admin session.");
-    if (confirm(`Are you sure you want to delete ${userId}? Their identity will be removed from the master directory.`)) {
+    if (confirm(`Remove ${userId}? This will disconnect their ID from the master directory.`)) {
       const updatedUsers = state.config.users.filter(u => u.id !== userId);
       updateConfig({ users: updatedUsers });
-      
       if (state.config.sheetUrl && triggerManualSync) {
         triggerManualSync('SYNC_DATA', { config: { ...state.config, users: updatedUsers } });
       }
@@ -156,7 +141,7 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, restoreFullState, tr
 
   const GAS_TEMPLATE = `
 /**
- * GOOGLE APPS SCRIPT DATABASE ENGINE v6 (Master Directory + User Nodes)
+ * GOOGLE APPS SCRIPT DATABASE ENGINE v8 (Multi-User User-Centric)
  * 1. Open Google Sheet
  * 2. Extensions -> Apps Script
  * 3. Paste this code and click Deploy -> New Deployment
@@ -174,30 +159,28 @@ function doPost(e) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var action = data.action;
 
-  // 1. Directory Sync & Provisioning (CREATES THE NEW TAB)
+  // 1. Handle Automatic User Provisioning (Automatic Sheet Creation)
   if (action === "PROVISION_USER") {
     var targetId = data.targetUser.id;
     var sheetName = "USER_DATA_" + targetId;
-    var sheet = ss.getSheetByName(sheetName) || ss.insertSheet(sheetName);
-    if (sheet.getLastColumn() === 0) {
-      sheet.appendRow(["Key", "Blob", "Last_Modified"]);
+    if (!ss.getSheetByName(sheetName)) {
+      var newSheet = ss.insertSheet(sheetName);
+      newSheet.appendRow(["Key", "Blob", "Last_Modified"]);
     }
   }
 
-  // 2. State Persistence
-  if (action === "SYNC_DATA" || action === "PROVISION_USER" || action === "MANUAL_SYNC") {
-    // Update Master Directory (The sheet containing User IDs and Passwords)
-    if (data.config) {
-      var dbSheet = ss.getSheetByName("GLOBAL_DB") || ss.insertSheet("GLOBAL_DB");
-      upsertValue(dbSheet, "MASTER_CONFIG", JSON.stringify(data.config));
-    }
+  // 2. Global Config Persistence (Master Directory)
+  if (data.config) {
+    var dbSheet = ss.getSheetByName("GLOBAL_DB") || ss.insertSheet("GLOBAL_DB");
+    upsertValue(dbSheet, "MASTER_CONFIG", JSON.stringify(data.config));
+  }
 
-    // Update individual user data logs if present
-    if (data.userLogs && data.userId) {
-      var userSheet = ss.getSheetByName("USER_DATA_" + data.userId) || ss.insertSheet("USER_DATA_" + data.userId);
-      var logs = data.userLogs[data.userId] || {};
-      upsertValue(userSheet, "LOG_BLOB", JSON.stringify(logs));
-    }
+  // 3. Decentralized User Node Update (Strict Isolation)
+  if (data.userLogs && data.userId) {
+    var sheetName = "USER_DATA_" + data.userId;
+    var userSheet = ss.getSheetByName(sheetName) || ss.insertSheet(sheetName);
+    var logs = data.userLogs[data.userId] || {};
+    upsertValue(userSheet, "LOG_BLOB", JSON.stringify(logs));
   }
   
   return ContentService.createTextOutput(JSON.stringify({ success: true }))
@@ -209,32 +192,30 @@ function doGet(e) {
   var userId = e.parameter.userId;
   var role = e.parameter.role;
   
-  // Fetch master directory for authentication and UI
   var dbSheet = ss.getSheetByName("GLOBAL_DB");
   var config = dbSheet ? JSON.parse(getValue(dbSheet, "MASTER_CONFIG")) : null;
   
   var userLogs = {};
-  if (userId) {
-    var userSheet = ss.getSheetByName("USER_DATA_" + userId);
-    if (userSheet) {
-      var blob = getValue(userSheet, "LOG_BLOB");
-      if (blob) userLogs[userId] = JSON.parse(blob);
-    }
-  }
-
-  // Admin Aggregator: Collect all user nodes
+  
+  // Admin Data Aggregator
   if (role === "admin") {
     var sheets = ss.getSheets();
     sheets.forEach(function(s) {
       var name = s.getName();
       if (name.indexOf("USER_DATA_") === 0) {
         var uId = name.replace("USER_DATA_", "");
-        if (uId !== userId) {
-          var blob = getValue(s, "LOG_BLOB");
-          if (blob) userLogs[uId] = JSON.parse(blob);
-        }
+        var blob = getValue(s, "LOG_BLOB");
+        if (blob) userLogs[uId] = JSON.parse(blob);
       }
     });
+  } 
+  // User Data Isolation
+  else if (userId) {
+    var s = ss.getSheetByName("USER_DATA_" + userId);
+    if (s) {
+      var blob = getValue(s, "LOG_BLOB");
+      if (blob) userLogs[userId] = JSON.parse(blob);
+    }
   }
   
   return ContentService.createTextOutput(JSON.stringify({ config: config, userLogs: userLogs }))
@@ -265,30 +246,25 @@ function getValue(sheet, key) {
   return (
     <div className="space-y-8 pb-12">
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-        {/* System & Centralized DB Config */}
-        <div className={`rounded-[2.5rem] p-8 border backdrop-blur-md shadow-2xl ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
+        {/* Global Configuration */}
+        <div className="bg-slate-900/40 rounded-[2.5rem] p-8 border border-slate-800 backdrop-blur-md shadow-2xl">
           <div className="flex justify-between items-center mb-8">
             <h3 className="text-lg font-bold flex items-center gap-2.5 text-white">
-              <Settings size={20} className="text-indigo-400" /> Cloud Database Configuration
+              <Settings size={20} className="text-indigo-400" /> Database Control Center
             </h3>
             {state.config.sheetUrl && (
               <button 
                 onClick={handleManualSync}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${isSyncing ? 'bg-emerald-500 text-white shadow-lg' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${isSyncing ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
               >
                 {isSyncing ? <RefreshCw size={14} className="animate-spin" /> : <Radio size={14} />}
-                Sync Everything
+                Cloud Sync
               </button>
             )}
           </div>
           <form onSubmit={handleGeneralSave} className="space-y-6">
             <div className="space-y-2">
-              <div className="flex justify-between items-center mb-1">
-                <label className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Google Apps Script Web App URL</label>
-                <a href="https://script.google.com/" target="_blank" rel="noopener noreferrer" className="text-[9px] text-indigo-400 font-bold hover:underline flex items-center gap-1">
-                  Apps Script Console <ExternalLink size={10} />
-                </a>
-              </div>
+              <label className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Centralized Google Apps Script URL</label>
               <div className="relative group">
                 <Link2 className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-indigo-400 transition-colors" size={16} />
                 <input 
@@ -296,10 +272,9 @@ function getValue(sheet, key) {
                   value={generalData.sheetUrl}
                   onChange={(e) => setGeneralData({...generalData, sheetUrl: e.target.value})}
                   placeholder="https://script.google.com/macros/s/.../exec"
-                  className={`w-full border rounded-2xl pl-11 pr-4 py-3 text-sm outline-none transition-all ${isDark ? 'bg-slate-950 border-slate-800 text-white focus:border-indigo-500' : 'bg-slate-50 border-slate-200 text-slate-900'}`}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-11 pr-4 py-3 text-sm text-white outline-none focus:border-indigo-500 transition-all"
                 />
               </div>
-              <p className="text-[9px] text-slate-500 mt-2 px-1">Must be deployed as a "Web App" with access set to "Anyone".</p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -308,50 +283,52 @@ function getValue(sheet, key) {
                   type="time" 
                   value={generalData.officeStartTime}
                   onChange={(e) => setGeneralData({...generalData, officeStartTime: e.target.value})}
-                  className={`w-full border rounded-2xl px-4 py-3 text-sm outline-none ${isDark ? 'bg-slate-950 border-slate-800 text-white focus:border-indigo-500' : 'bg-slate-50 border-slate-200'}`}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-white outline-none focus:border-indigo-500"
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Daily Target (Hours)</label>
+                <label className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Target (Hours)</label>
                 <input 
                   type="number" 
                   value={generalData.targetWorkingHours}
                   onChange={(e) => setGeneralData({...generalData, targetWorkingHours: e.target.value})}
-                  className={`w-full border rounded-2xl px-4 py-3 text-sm outline-none ${isDark ? 'bg-slate-950 border-slate-800 text-white focus:border-indigo-500' : 'bg-slate-50 border-slate-200'}`}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-white outline-none focus:border-indigo-500"
                 />
               </div>
             </div>
-            <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-4 rounded-2xl uppercase tracking-wider text-xs shadow-xl transition-all">
-              Save & Link Cloud Database
+            <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-4 rounded-2xl uppercase tracking-wider text-xs shadow-xl transition-all active:scale-[0.98]">
+              Link Database System
             </button>
           </form>
         </div>
 
-        {/* Provisioning Form */}
-        <div className={`rounded-[2.5rem] p-8 border backdrop-blur-md shadow-2xl ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
+        {/* User Provisioning */}
+        <div className="bg-slate-900/40 rounded-[2.5rem] p-8 border border-slate-800 backdrop-blur-md shadow-2xl">
           <h3 className="text-lg font-bold flex items-center gap-2.5 mb-8 text-white">
-            <UserPlus size={20} className="text-emerald-400" /> Create New Employee Node
+            <UserPlus size={20} className="text-emerald-400" /> Provision Employee Node
           </h3>
           <form onSubmit={handleProvision} className="space-y-4">
-            <div className="space-y-1">
-              <label className="text-[9px] text-slate-500 font-black uppercase tracking-widest ml-1">Unique User ID (Login Name)</label>
-              <input 
-                placeholder="e.g. EM001" 
-                required
-                value={provisionData.newUserId}
-                onChange={e => setProvisionData({...provisionData, newUserId: e.target.value})}
-                className={`w-full border rounded-2xl px-4 py-3 text-sm outline-none transition-all ${isDark ? 'bg-slate-950 border-slate-800 text-white focus:border-emerald-500' : 'bg-slate-50 border-slate-200'}`}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[9px] text-slate-500 font-black uppercase tracking-widest ml-1">Full Legal Name</label>
-              <input 
-                placeholder="e.g. John Doe" 
-                value={provisionData.newUserName}
-                required
-                onChange={e => setProvisionData({...provisionData, newUserName: e.target.value})}
-                className={`w-full border rounded-2xl px-4 py-3 text-sm outline-none transition-all ${isDark ? 'bg-slate-950 border-slate-800 text-white focus:border-emerald-500' : 'bg-slate-50 border-slate-200'}`}
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label className="text-[9px] text-slate-500 font-black uppercase tracking-widest ml-1">Unique User ID</label>
+                <input 
+                  placeholder="e.g. EM001" 
+                  required
+                  value={provisionData.newUserId}
+                  onChange={e => setProvisionData({...provisionData, newUserId: e.target.value})}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-white outline-none focus:border-emerald-500 transition-all"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[9px] text-slate-500 font-black uppercase tracking-widest ml-1">Full Name</label>
+                <input 
+                  placeholder="e.g. John Doe" 
+                  value={provisionData.newUserName}
+                  required
+                  onChange={e => setProvisionData({...provisionData, newUserName: e.target.value})}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-white outline-none focus:border-emerald-500 transition-all"
+                />
+              </div>
             </div>
             <div className="space-y-1 relative">
               <label className="text-[9px] text-slate-500 font-black uppercase tracking-widest ml-1">Access Security Key</label>
@@ -361,7 +338,7 @@ function getValue(sheet, key) {
                 required
                 value={provisionData.newPassword}
                 onChange={e => setProvisionData({...provisionData, newPassword: e.target.value})}
-                className={`w-full border rounded-2xl px-4 py-3 text-sm outline-none transition-all ${isDark ? 'bg-slate-950 border-slate-800 text-white focus:border-emerald-500' : 'bg-slate-50 border-slate-200'}`}
+                className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-white outline-none focus:border-emerald-500 transition-all"
               />
               <button type="button" onClick={() => setShowNewPassword(!showNewPassword)} className="absolute right-4 top-8 text-slate-500">
                 {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -372,38 +349,37 @@ function getValue(sheet, key) {
               <select 
                 value={provisionData.role}
                 onChange={e => setProvisionData({...provisionData, role: e.target.value as any})}
-                className={`w-full border rounded-2xl px-4 py-3 text-sm outline-none transition-all ${isDark ? 'bg-slate-950 border-slate-800 text-white focus:border-emerald-500' : 'bg-slate-50 border-slate-200'}`}
+                className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-white outline-none focus:border-emerald-500"
               >
-                <option value="user">Standard (Employee)</option>
+                <option value="user">Standard User (Employee)</option>
                 <option value="admin">Administrator (Manager)</option>
               </select>
             </div>
-            <button type="submit" disabled={isProvisioning || !state.config.sheetUrl} className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-black py-4 rounded-2xl uppercase tracking-wider text-xs transition-all shadow-xl shadow-emerald-900/20 active:scale-[0.98]">
-              {isProvisioning ? <div className="flex items-center justify-center gap-2"><RefreshCw className="animate-spin" size={16} /> Creating Cloud Tab...</div> : 'Finalize & Create Cloud Sheet'}
+            <button type="submit" disabled={isProvisioning || !state.config.sheetUrl} className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-black py-4 rounded-2xl uppercase tracking-wider text-xs transition-all shadow-xl active:scale-[0.98]">
+              {isProvisioning ? <div className="flex items-center justify-center gap-2"><RefreshCw className="animate-spin" size={16} /> Deploying Cloud Node...</div> : 'Finalize & Provision'}
             </button>
-            {!state.config.sheetUrl && <p className="text-[9px] text-red-400 font-bold uppercase text-center mt-2">Error: Setup Database URL First</p>}
             {provisionSuccess && (
               <div className="flex flex-col items-center justify-center gap-1 text-emerald-400 animate-bounce mt-2">
                 <Check size={18} strokeWidth={3} />
-                <p className="text-[10px] font-black uppercase tracking-widest">Success: User & Sheet Created!</p>
+                <p className="text-[10px] font-black uppercase tracking-widest">Employee Node Successfully Deployed</p>
               </div>
             )}
           </form>
         </div>
       </div>
 
-      {/* Directory & CRUD */}
-      <div className={`rounded-[2.5rem] p-8 border backdrop-blur-md shadow-2xl ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
+      {/* Directory Management */}
+      <div className="bg-slate-900/40 rounded-[2.5rem] p-8 border border-slate-800 backdrop-blur-md shadow-2xl">
         <h3 className="text-lg font-bold mb-6 text-white flex items-center gap-2">
-          <Database size={20} className="text-indigo-400" /> Workforce Identity Directory
+          <Database size={20} className="text-indigo-400" /> Organizational Identity Registry
         </h3>
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
               <tr className="border-b border-slate-800 text-[10px] uppercase tracking-widest font-black text-slate-500">
                 <th className="px-4 py-3">Employee Name</th>
-                <th className="px-4 py-3">ID / Database Node</th>
-                <th className="px-4 py-3">Access Level</th>
+                <th className="px-4 py-3">Database Node ID</th>
+                <th className="px-4 py-3">Access Tier</th>
                 <th className="px-4 py-3">Security Key</th>
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
@@ -416,14 +392,14 @@ function getValue(sheet, key) {
                       <input 
                         value={editFormData?.name}
                         onChange={e => setEditFormData({...editFormData!, name: e.target.value})}
-                        className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:border-indigo-500 outline-none"
+                        className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white outline-none"
                       />
                     ) : (
                       <span className="text-sm font-bold text-white">{u.name}</span>
                     )}
                   </td>
                   <td className="px-4 py-4">
-                    <span className="text-[10px] text-slate-500 font-bold uppercase tabular-nums">{u.id}</span>
+                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">{u.id}</span>
                   </td>
                   <td className="px-4 py-4">
                     {editingUserId === u.id ? (
@@ -446,10 +422,10 @@ function getValue(sheet, key) {
                       <input 
                         value={editFormData?.password}
                         onChange={e => setEditFormData({...editFormData!, password: e.target.value})}
-                        className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:border-indigo-500 outline-none"
+                        className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white outline-none"
                       />
                     ) : (
-                      <span className="text-xs font-mono text-slate-600">••••••••</span>
+                      <span className="text-xs font-mono text-slate-700">••••••••</span>
                     )}
                   </td>
                   <td className="px-4 py-4 text-right">
@@ -474,33 +450,33 @@ function getValue(sheet, key) {
         </div>
       </div>
 
-      {/* GAS Template Block */}
-      <div className={`rounded-[2.5rem] p-8 border backdrop-blur-md transition-all ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
+      {/* Cloud Engine Template */}
+      <div className="bg-slate-900/40 rounded-[2.5rem] p-8 border border-slate-800 transition-all">
         <div className="flex justify-between items-center mb-6">
           <div className="space-y-1">
             <h3 className="text-lg font-bold flex items-center gap-2.5 text-white">
-              <Code size={20} className="text-indigo-400" /> Cloud Database Engine (v6)
+              <Code size={20} className="text-indigo-400" /> Cloud Database Logic (v8)
             </h3>
-            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Paste this code into Google Apps Script</p>
+            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Secure Backend Implementation for Google Apps Script</p>
           </div>
           <button 
             onClick={() => {
               navigator.clipboard.writeText(GAS_TEMPLATE);
-              alert("Template copied to clipboard!");
+              alert("Template copied!");
               setShowScript(true);
             }} 
             className="px-4 py-2 bg-indigo-600/10 hover:bg-indigo-600 text-indigo-400 hover:text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-indigo-500/20"
           >
-            Copy Template
+            Copy Script
           </button>
         </div>
-        <div className="bg-amber-500/5 border border-amber-500/10 p-4 rounded-2xl mb-6">
-          <p className="text-[11px] text-amber-200/80 leading-relaxed">
-            <span className="font-black text-amber-400">CRITICAL:</span> After pasting the code into Apps Script, you MUST click <strong>Deploy</strong> &rarr; <strong>New Deployment</strong> and set <strong>"Who has access"</strong> to <strong>"Anyone"</strong>. If you do not do this, the application cannot create the user sheets.
+        <div className="bg-amber-500/5 border border-amber-500/10 p-5 rounded-2xl mb-6">
+          <p className="text-[11px] text-amber-200/80 leading-relaxed font-medium">
+            <span className="font-black text-amber-400">DEPLOYMENT GUIDE:</span> Paste the code into your Apps Script editor. Click <strong>Deploy</strong>, choose <strong>New Deployment</strong>, set <strong>"Who has access"</strong> to <strong>"Anyone"</strong>, and <strong>"Execute as"</strong> to <strong>"Me"</strong>. Copy the provided URL into the "Database Control Center" above.
           </p>
         </div>
         <button onClick={() => setShowScript(!showScript)} className="text-xs text-indigo-400 font-bold hover:underline mb-4">
-          {showScript ? 'Hide Technical Details' : 'View Code Breakdown'}
+          {showScript ? 'Hide Backend Logic' : 'View Code Breakdown'}
         </button>
         {showScript && (
           <pre className="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-[10px] font-mono text-indigo-300 overflow-x-auto whitespace-pre">
