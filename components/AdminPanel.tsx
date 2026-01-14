@@ -15,7 +15,6 @@ import {
   Edit2,
   X,
   Save as SaveIcon,
-  ExternalLink,
   Trash2
 } from 'lucide-react';
 import { AppState, UserProfile } from '../types';
@@ -141,11 +140,9 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, triggerManualSync })
 
   const GAS_TEMPLATE = `
 /**
- * GOOGLE APPS SCRIPT DATABASE ENGINE v8 (Multi-User User-Centric)
- * 1. Open Google Sheet
- * 2. Extensions -> Apps Script
- * 3. Paste this code and click Deploy -> New Deployment
- * 4. Select "Web App", Execute as "Me", Access "Anyone"
+ * GOOGLE APPS SCRIPT DATABASE ENGINE v9 (Strict Multi-Sheet Architecture)
+ * - GLOBAL_DB: Central configuration and master user list.
+ * - USER_DATA_[ID]: Separate sheet for every unique user.
  */
 function doPost(e) {
   var data;
@@ -158,14 +155,17 @@ function doPost(e) {
   
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var action = data.action;
+  var role = data.role;
+  var userId = data.userId;
 
   // 1. Handle Automatic User Provisioning (Automatic Sheet Creation)
-  if (action === "PROVISION_USER") {
+  if (action === "PROVISION_USER" && data.targetUser) {
     var targetId = data.targetUser.id;
     var sheetName = "USER_DATA_" + targetId;
     if (!ss.getSheetByName(sheetName)) {
       var newSheet = ss.insertSheet(sheetName);
       newSheet.appendRow(["Key", "Blob", "Last_Modified"]);
+      upsertValue(newSheet, "LOG_BLOB", "{}");
     }
   }
 
@@ -175,12 +175,22 @@ function doPost(e) {
     upsertValue(dbSheet, "MASTER_CONFIG", JSON.stringify(data.config));
   }
 
-  // 3. Decentralized User Node Update (Strict Isolation)
-  if (data.userLogs && data.userId) {
-    var sheetName = "USER_DATA_" + data.userId;
-    var userSheet = ss.getSheetByName(sheetName) || ss.insertSheet(sheetName);
-    var logs = data.userLogs[data.userId] || {};
-    upsertValue(userSheet, "LOG_BLOB", JSON.stringify(logs));
+  // 3. Multi-Sheet Data Routing
+  if (data.userLogs) {
+    if (role === "admin") {
+      // Admin Batch Sync: Distribute data to correct user sheets
+      for (var uId in data.userLogs) {
+        var sheetName = "USER_DATA_" + uId;
+        var uSheet = ss.getSheetByName(sheetName) || ss.insertSheet(sheetName);
+        upsertValue(uSheet, "LOG_BLOB", JSON.stringify(data.userLogs[uId]));
+      }
+    } else if (userId) {
+      // User Isolated Sync: Only write to their own sheet
+      var sheetName = "USER_DATA_" + userId;
+      var userSheet = ss.getSheetByName(sheetName) || ss.insertSheet(sheetName);
+      var logs = data.userLogs[userId] || {};
+      upsertValue(userSheet, "LOG_BLOB", JSON.stringify(logs));
+    }
   }
   
   return ContentService.createTextOutput(JSON.stringify({ success: true }))
@@ -197,7 +207,7 @@ function doGet(e) {
   
   var userLogs = {};
   
-  // Admin Data Aggregator
+  // Admin Data Aggregator: Fetch from all user-specific sheets
   if (role === "admin") {
     var sheets = ss.getSheets();
     sheets.forEach(function(s) {
@@ -209,7 +219,7 @@ function doGet(e) {
       }
     });
   } 
-  // User Data Isolation
+  // User Data Isolation: Fetch ONLY from their specific sheet
   else if (userId) {
     var s = ss.getSheetByName("USER_DATA_" + userId);
     if (s) {
@@ -455,7 +465,7 @@ function getValue(sheet, key) {
         <div className="flex justify-between items-center mb-6">
           <div className="space-y-1">
             <h3 className="text-lg font-bold flex items-center gap-2.5 text-white">
-              <Code size={20} className="text-indigo-400" /> Cloud Database Logic (v8)
+              <Code size={20} className="text-indigo-400" /> Multi-Sheet Cloud Logic (v9)
             </h3>
             <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Secure Backend Implementation for Google Apps Script</p>
           </div>

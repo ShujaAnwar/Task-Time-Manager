@@ -98,8 +98,10 @@ const App: React.FC = () => {
             const updatedUserLogs = { ...prev.userLogs };
             if (cloudData.userLogs) {
               if (isAdmin) {
+                // Aggregated view for admins
                 Object.assign(updatedUserLogs, cloudData.userLogs);
               } else {
+                // Isolated view for users
                 const myLogs = cloudData.userLogs[state.currentUser!.id];
                 if (myLogs) updatedUserLogs[state.currentUser!.id] = myLogs;
               }
@@ -139,6 +141,7 @@ const App: React.FC = () => {
           action: 'SYNC_DATA',
           userId: state.currentUser.id,
           role: state.currentUser.role,
+          // Admin sends all known logs; User only sends their own
           userLogs: isAdmin ? state.userLogs : { [state.currentUser.id]: state.userLogs[state.currentUser.id] || {} },
           config: state.config,
           lastUpdated: new Date().toISOString()
@@ -216,7 +219,7 @@ const App: React.FC = () => {
         action: specialAction || 'MANUAL_SYNC',
         userId: state.currentUser.id,
         role: state.currentUser.role,
-        userLogs: state.userLogs,
+        userLogs: isAdmin ? state.userLogs : { [state.currentUser.id]: state.userLogs[state.currentUser.id] || {} },
         config: state.config,
         ...extraData
       };
