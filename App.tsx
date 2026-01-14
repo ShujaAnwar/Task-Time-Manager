@@ -34,7 +34,6 @@ const DEFAULT_ADMIN: UserProfile = {
   createdAt: Date.now()
 };
 
-// This is your specific Google Apps Script Web App URL
 const BUILTIN_SHEET_URL = "https://script.google.com/macros/s/AKfycbw19O0PcbtKUuseQ_3vy_JyBvkGeO-GZ8s3iFFCKxQQ1_h2BwbFnZhhastQlRpO9tDLjQ/exec";
 
 const INITIAL_STATE: AppState = {
@@ -57,14 +56,15 @@ const App: React.FC = () => {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Ensure the builtin URL is used if no custom one was previously saved
+        // Persist authentication only if rememberMe was checked
+        const shouldAuth = parsed.rememberMe && parsed.currentUser;
         return { 
           ...parsed, 
-          isAuthenticated: false, 
-          currentUser: undefined,
+          isAuthenticated: shouldAuth, 
+          currentUser: shouldAuth ? parsed.currentUser : undefined,
           config: { 
             ...parsed.config, 
-            sheetUrl: parsed.config.sheetUrl && parsed.config.sheetUrl !== "" ? parsed.config.sheetUrl : BUILTIN_SHEET_URL 
+            sheetUrl: parsed.config.sheetUrl || BUILTIN_SHEET_URL 
           }
         };
       } catch (e) {
@@ -78,11 +78,9 @@ const App: React.FC = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [syncStatus, setSyncStatus] = useState<'idle' | 'hydrating' | 'syncing' | 'connected' | 'error'>('idle');
   const [isHydrated, setIsHydrated] = useState(false);
-  const isSyncingRef = useRef(false);
 
   const isAdmin = state.currentUser?.role === 'admin';
 
-  // HYDRATION: Fetch the "Single Source of Truth"
   useEffect(() => {
     const loadFromCloud = async () => {
       if (!state.config.sheetUrl || !state.isAuthenticated || !state.currentUser || isHydrated) return;
@@ -123,7 +121,6 @@ const App: React.FC = () => {
           if (response.status === 404) setIsHydrated(true);
         }
       } catch (err) {
-        console.error("Hydration failed:", err);
         setSyncStatus('error');
       }
     };
@@ -133,7 +130,6 @@ const App: React.FC = () => {
     }
   }, [state.isAuthenticated, isHydrated, state.currentUser, state.config.sheetUrl, isAdmin]);
 
-  // SYNC: Push updates
   useEffect(() => {
     const saveToCloud = async () => {
       if (!state.config.sheetUrl || !state.isAuthenticated || !state.currentUser || !isHydrated) return;

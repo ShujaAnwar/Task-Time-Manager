@@ -66,184 +66,169 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
     setIsExporting('pdf');
     try {
       const doc = new jsPDF('p', 'mm', 'a4');
-      const margin = 20;
+      const margin = 15;
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
       let y = 0;
 
-      const drawHeader = (pageNum: number) => {
-        // Aesthetic Background Header
-        doc.setFillColor(31, 41, 55); // Slate-800
-        doc.rect(0, 0, pageWidth, 50, 'F');
+      const drawReportHeader = (pageNum: number) => {
+        // Branding Bar
+        doc.setFillColor(15, 23, 42); // Slate-900
+        doc.rect(0, 0, pageWidth, 45, 'F');
         
-        // Logo Accent
-        doc.setFillColor(79, 70, 229); // Indigo-600
-        doc.rect(margin, 15, 12, 12, 'F');
-        
-        // Main Title
+        // Report Title
         doc.setTextColor(255, 255, 255);
-        doc.setFontSize(22);
+        doc.setFontSize(24);
         doc.setFont('helvetica', 'bold');
-        doc.text('EXECUTIVE PRODUCTIVITY AUDIT', margin + 18, 25);
+        doc.text('PERFORMANCE AUDIT REPORT', margin, 22);
         
-        // Document Metadata
+        // User Branding
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(99, 102, 241); // Indigo-400
+        doc.text(`EMPLOYEE: ${user?.name?.toUpperCase() || 'SYSTEM USER'}`, margin, 32);
+        
         doc.setFontSize(9);
         doc.setFont('helvetica', 'normal');
-        doc.setTextColor(209, 213, 219);
-        doc.text(`EMPLOYEE: ${user?.name || 'Authorized Personnel'}`, margin, 38);
-        doc.text(`ID: ${user?.id || 'N/A'}`, margin, 43);
+        doc.setTextColor(148, 163, 184); // Slate-400
+        doc.text(`EMPLOYEE ID: ${user?.id || 'UNASSIGNED'}`, margin, 38);
         
-        doc.text(`DATE GENERATED: ${new Date().toLocaleString()}`, pageWidth - margin - 60, 38, { align: 'left' });
-        doc.text(`PERIOD: ${monthName} ${currentYear}`, pageWidth - margin - 60, 43, { align: 'left' });
+        // Metadata
+        doc.text(`GENERATED: ${new Date().toLocaleString()}`, pageWidth - margin - 55, 32);
+        doc.text(`PERIOD: ${monthName} ${currentYear}`, pageWidth - margin - 55, 38);
         
-        doc.setTextColor(156, 163, 175);
-        doc.text(`Page ${pageNum}`, pageWidth - margin - 10, 10);
+        if (pageNum > 1) {
+          doc.text(`Page ${pageNum}`, pageWidth - margin - 15, 10);
+        }
       };
 
-      drawHeader(1);
-      y = 65;
+      drawReportHeader(1);
+      y = 55;
 
-      // Summary Stats Grid
-      doc.setDrawColor(229, 231, 235);
-      doc.setFillColor(249, 250, 251);
-      const boxW = (pageWidth - (margin * 2) - 10) / 3;
-      const boxH = 25;
+      // Executive Summary Boxes
+      doc.setDrawColor(226, 232, 240);
+      doc.setFillColor(248, 250, 252);
+      const gridW = (pageWidth - (margin * 2) - 10) / 3;
+      const gridH = 22;
 
-      // Box 1
-      doc.roundedRect(margin, y, boxW, boxH, 2, 2, 'FD');
-      doc.setTextColor(107, 114, 128);
-      doc.setFontSize(8);
-      doc.text('TOTAL WORK HOURS', margin + 5, y + 8);
-      doc.setTextColor(17, 24, 39);
-      doc.setFontSize(14);
+      // Actual Hours Box
+      doc.roundedRect(margin, y, gridW, gridH, 2, 2, 'FD');
+      doc.setTextColor(100, 116, 139);
+      doc.setFontSize(7);
+      doc.text('TOTAL BILLED HOURS', margin + 5, y + 6);
+      doc.setTextColor(15, 23, 42);
+      doc.setFontSize(13);
       doc.setFont('helvetica', 'bold');
-      doc.text(`${(stats.totalActual / 60).toFixed(1)} hrs`, margin + 5, y + 18);
+      doc.text(`${(stats.totalActual / 60).toFixed(1)}h`, margin + 5, y + 15);
 
-      // Box 2
-      doc.roundedRect(margin + boxW + 5, y, boxW, boxH, 2, 2, 'FD');
-      doc.setTextColor(107, 114, 128);
-      doc.setFontSize(8);
-      doc.text('AVG PRODUCTIVITY', margin + boxW + 10, y + 8);
+      // Efficiency Box
+      doc.roundedRect(margin + gridW + 5, y, gridW, gridH, 2, 2, 'FD');
+      doc.setTextColor(100, 116, 139);
+      doc.setFontSize(7);
+      doc.text('AUDIT EFFICIENCY', margin + gridW + 10, y + 6);
       doc.setTextColor(79, 70, 229);
-      doc.setFontSize(14);
-      doc.text(`${stats.avgEfficiency.toFixed(1)}%`, margin + boxW + 10, y + 18);
+      doc.text(`${stats.avgEfficiency.toFixed(1)}%`, margin + gridW + 10, y + 15);
 
-      // Box 3
-      doc.roundedRect(margin + (boxW * 2) + 10, y, boxW, boxH, 2, 2, 'FD');
-      doc.setTextColor(107, 114, 128);
-      doc.setFontSize(8);
-      doc.text('COMPLETED TASKS', margin + (boxW * 2) + 15, y + 8);
+      // Target Reach Box
+      doc.roundedRect(margin + (gridW * 2) + 10, y, gridW, gridH, 2, 2, 'FD');
+      doc.setTextColor(100, 116, 139);
+      doc.setFontSize(7);
+      doc.text('LOGGED ENTRIES', margin + (gridW * 2) + 15, y + 6);
       doc.setTextColor(16, 185, 129);
-      doc.setFontSize(14);
-      doc.text(`${stats.completedTasks}`, margin + (boxW * 2) + 15, y + 18);
+      doc.text(`${monthlyLogs.length} Days`, margin + (gridW * 2) + 15, y + 15);
 
-      y += 40;
+      y += 35;
 
-      // --- TABLE SECTION ---
-      // Column Configuration
-      const columns = [
-        { header: 'DATE', width: 30 },
-        { header: 'ATTENDANCE', width: 45 },
-        { header: 'LOGGED HRS', width: 30 },
-        { header: 'PRIMARY TASKS PERFORMED', width: pageWidth - (margin * 2) - 105 }
+      // --- DATA TABLE ---
+      const tableHeaders = [
+        { name: 'DATE', w: 25 },
+        { name: 'IN / OUT', w: 35 },
+        { name: 'ACTUAL', w: 25 },
+        { name: 'TASK DESCRIPTION / NOTES', w: pageWidth - (margin * 2) - 85 }
       ];
 
-      // Draw Table Headers
-      doc.setFillColor(17, 24, 39); // Dark Gray
+      // Draw Header Row
+      doc.setFillColor(15, 23, 42);
       doc.rect(margin, y, pageWidth - (margin * 2), 10, 'F');
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(9);
       doc.setFont('helvetica', 'bold');
       
-      let currentX = margin;
-      columns.forEach(col => {
-        doc.text(col.header, currentX + 3, y + 6.5);
-        currentX += col.width;
+      let curX = margin;
+      tableHeaders.forEach(h => {
+        doc.text(h.name, curX + 3, y + 6.5);
+        curX += h.w;
       });
 
       y += 10;
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(31, 41, 55);
 
-      // Draw Table Body
-      let currentPage = 1;
-      monthlyLogs.forEach((log, index) => {
-        // Page overflow protection
-        if (y > pageHeight - 30) {
+      let currentPDFPage = 1;
+      monthlyLogs.forEach((l, idx) => {
+        if (y > pageHeight - 25) {
           doc.addPage();
-          currentPage++;
-          drawHeader(currentPage);
-          y = 65;
-          // Re-draw headers on new page
-          doc.setFillColor(17, 24, 39);
+          currentPDFPage++;
+          drawReportHeader(currentPDFPage);
+          y = 55;
+          // Redraw Table Headers on new page
+          doc.setFillColor(15, 23, 42);
           doc.rect(margin, y, pageWidth - (margin * 2), 10, 'F');
           doc.setTextColor(255, 255, 255);
           doc.setFont('helvetica', 'bold');
-          let headerX = margin;
-          columns.forEach(col => {
-            doc.text(col.header, headerX + 3, y + 6.5);
-            headerX += col.width;
+          let subX = margin;
+          tableHeaders.forEach(h => {
+            doc.text(h.name, subX + 3, y + 6.5);
+            subX += h.w;
           });
           y += 10;
           doc.setFont('helvetica', 'normal');
           doc.setTextColor(31, 41, 55);
         }
 
-        // Stripe styling
-        if (index % 2 === 0) {
-          doc.setFillColor(243, 244, 246);
+        // Stripe and Border
+        if (idx % 2 === 0) {
+          doc.setFillColor(248, 250, 252);
           doc.rect(margin, y, pageWidth - (margin * 2), 10, 'F');
         }
+        
+        doc.setDrawColor(226, 232, 240);
+        doc.rect(margin, y, pageWidth - (margin * 2), 10); // Full row border
 
-        // Cell borders
-        doc.setDrawColor(209, 213, 219);
-        doc.line(margin, y, pageWidth - margin, y); // Top line
-        doc.line(margin, y + 10, pageWidth - margin, y + 10); // Bottom line
-
-        // Draw Row Data
-        let dataX = margin;
-        doc.text(log.date, dataX + 3, y + 6.5);
-        dataX += columns[0].width;
+        let cellX = margin;
+        // Date
+        doc.text(l.date, cellX + 3, y + 6.5);
+        doc.line(cellX + tableHeaders[0].w, y, cellX + tableHeaders[0].w, y + 10);
+        cellX += tableHeaders[0].w;
         
-        doc.text(`${log.timeIn || '--'} - ${log.timeOut || '--'}`, dataX + 3, y + 6.5);
-        dataX += columns[1].width;
+        // Time
+        doc.text(`${l.timeIn || '--'} - ${l.timeOut || '--'}`, cellX + 3, y + 6.5);
+        doc.line(cellX + tableHeaders[1].w, y, cellX + tableHeaders[1].w, y + 10);
+        cellX += tableHeaders[1].w;
         
-        const dayActual = log.tasks.reduce((s, t) => s + t.actualDuration, 0);
-        doc.text(formatMinutesToDisplay(dayActual), dataX + 3, y + 6.5);
-        dataX += columns[2].width;
+        // Hours
+        const dayActual = l.tasks.reduce((s, t) => s + t.actualDuration, 0);
+        doc.text(formatMinutesToDisplay(dayActual), cellX + 3, y + 6.5);
+        doc.line(cellX + tableHeaders[2].w, y, cellX + tableHeaders[2].w, y + 10);
+        cellX += tableHeaders[2].w;
         
-        const taskTitles = log.tasks.map(t => t.title).join(', ');
-        const truncatedTasks = taskTitles.length > 55 ? taskTitles.substring(0, 52) + '...' : taskTitles;
-        doc.text(truncatedTasks || 'No tasks logged', dataX + 3, y + 6.5);
+        // Tasks
+        const taskSummary = l.tasks.map(t => t.title).join(', ');
+        const truncated = taskSummary.length > 70 ? taskSummary.substring(0, 67) + '...' : taskSummary;
+        doc.text(truncated || 'No specific tasks logged', cellX + 3, y + 6.5);
 
         y += 10;
       });
 
-      // Signature Block
-      if (y > pageHeight - 50) {
-        doc.addPage();
-        drawHeader(currentPage + 1);
-        y = 65;
-      }
-      y += 20;
-      doc.setDrawColor(31, 41, 55);
-      doc.setLineWidth(0.5);
-      doc.line(margin, y, margin + 60, y);
+      // Footer line
       doc.setFontSize(8);
-      doc.setTextColor(75, 85, 99);
-      doc.text('Employee Signature', margin, y + 5);
-      
-      doc.line(pageWidth - margin - 60, y, pageWidth - margin, y);
-      doc.text('Authorized Supervisor', pageWidth - margin - 60, y + 5);
+      doc.setTextColor(148, 163, 184);
+      doc.text('This document is a certified professional productivity audit. All records are verified by system timestamps.', margin, pageHeight - 10);
+      doc.text('Created by Shuja Anwar Ahmed Hashmi', pageWidth - margin - 55, pageHeight - 10);
 
-      // Footer
-      doc.setFontSize(7);
-      doc.setTextColor(156, 163, 175);
-      doc.text('CONFIDENTIAL PRODUCTIVITY AUDIT REPORT. System generated by Task & Time Manager v2.0.', margin, pageHeight - 10);
-
-      doc.save(`AuditReport_${user?.id || 'User'}_${getTodayStr()}.pdf`);
-    } catch (error) {
-      console.error("PDF Export error:", error);
+      doc.save(`Audit_${user?.id || 'User'}_${monthName}_${currentYear}.pdf`);
+    } catch (err) {
+      console.error("Audit export failed:", err);
     } finally {
       setIsExporting(null);
     }

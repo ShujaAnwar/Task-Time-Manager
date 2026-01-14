@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Lock, User, Clock, ShieldCheck, ChevronRight, Info, Check } from 'lucide-react';
+import { Lock, User, Clock, ChevronRight, Info, Check } from 'lucide-react';
 
 interface Props {
   onLogin: (userId: string, password: string, remember: boolean) => boolean;
@@ -10,7 +10,7 @@ interface Props {
 const LoginForm: React.FC<Props> = ({ onLogin, defaultUserId = '' }) => {
   const [userId, setUserId] = useState(defaultUserId);
   const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(true); // Default to true for persistent sessions
+  const [rememberMe, setRememberMe] = useState(true); 
   const [error, setError] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -24,7 +24,7 @@ const LoginForm: React.FC<Props> = ({ onLogin, defaultUserId = '' }) => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 relative overflow-hidden">
+    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 relative overflow-hidden">
       <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-indigo-600/10 rounded-full blur-[120px] animate-pulse"></div>
       <div className="absolute bottom-1/4 right-1/4 w-[500px] h-[500px] bg-emerald-600/10 rounded-full blur-[120px] animate-pulse delay-700"></div>
 
@@ -43,7 +43,7 @@ const LoginForm: React.FC<Props> = ({ onLogin, defaultUserId = '' }) => {
 
         <form 
           onSubmit={handleSubmit}
-          className="bg-slate-900/40 backdrop-blur-2xl border border-white/10 rounded-[3rem] p-10 shadow-2xl shadow-black/50 overflow-hidden relative"
+          className="bg-slate-900/40 backdrop-blur-2xl border border-white/10 rounded-[3rem] p-10 shadow-2xl shadow-black/50 overflow-hidden relative mb-12"
         >
           <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-indigo-500/50 to-transparent"></div>
 
@@ -96,7 +96,6 @@ const LoginForm: React.FC<Props> = ({ onLogin, defaultUserId = '' }) => {
                 </div>
                 <span className="text-xs text-slate-400 font-bold uppercase tracking-wider group-hover:text-slate-200 transition-colors">Remember Session</span>
               </label>
-              <button type="button" className="text-xs text-indigo-400 font-bold hover:text-indigo-300 transition-colors uppercase tracking-wider">Reset Keys?</button>
             </div>
 
             {error && (
@@ -122,12 +121,14 @@ const LoginForm: React.FC<Props> = ({ onLogin, defaultUserId = '' }) => {
                 </p>
               </div>
             </div>
-
-            <div className="pt-4 border-t border-slate-800/50 flex flex-col items-center gap-3">
-              <p className="text-[9px] text-slate-600 font-bold uppercase tracking-widest">Cloud Database Node Connected</p>
-            </div>
           </div>
         </form>
+
+        <div className="text-center animate-in fade-in slide-in-from-bottom-2 duration-1000">
+          <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-600 hover:text-indigo-400/60 transition-colors cursor-default">
+            Created by Shuja Anwar Ahmed Hashmi
+          </p>
+        </div>
       </div>
       
       <style>{`
