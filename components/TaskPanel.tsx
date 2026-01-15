@@ -177,30 +177,27 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
   };
 
   return (
-    <div className={`glass-panel border rounded-[3rem] p-8 backdrop-blur-md shadow-2xl flex flex-col ${isFullWidth ? 'min-h-[80vh]' : 'h-full'}`}>
+    <div className={`glass-panel border rounded-[3rem] p-8 backdrop-blur-md shadow-2xl flex flex-col ${isFullWidth ? 'min-h-[80vh]' : 'h-full max-h-full overflow-hidden'}`}>
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-4">
           <div className="p-3 bg-theme-primary/20 text-theme-primary rounded-2xl shadow-xl">
             <CheckSquare size={24} strokeWidth={2.5} />
           </div>
           <div>
-            <h3 className="text-xl font-black text-white uppercase tracking-tight">Active Modules</h3>
-            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black opacity-80">Mission Control</p>
+            <h3 className="text-xl font-black text-white uppercase tracking-tight">Activity Board</h3>
+            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black opacity-80">Mission Tracking</p>
           </div>
         </div>
       </div>
 
-      <div className="mb-8 p-6 glass-card rounded-[2.5rem] border-slate-800/50">
-        <div className="flex items-center gap-3 mb-6">
-           <Zap size={16} className="text-theme-primary" />
-           <p className="text-[10px] text-theme-primary font-black uppercase tracking-[0.3em]">Quick Entry Portal</p>
-        </div>
+      {/* Fixed Entry Area */}
+      <div className="mb-6 p-6 glass-card rounded-[2.5rem] border-slate-800/50 shrink-0">
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <input 
               type="text" 
-              placeholder="Objective Identifier *" 
-              className="w-full bg-slate-950/80 border border-slate-800 rounded-2xl px-5 py-4 text-sm text-white focus:border-theme-primary outline-none transition-all"
+              placeholder="Module Identifier..." 
+              className="w-full bg-slate-950/80 border border-slate-800 rounded-2xl px-5 py-3 text-sm text-white focus:border-theme-primary outline-none transition-all"
               value={formData.title}
               onChange={e => setFormData({...formData, title: e.target.value})}
             />
@@ -210,44 +207,25 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
                   key={p}
                   type="button"
                   onClick={() => setFormData({...formData, priority: p as TaskPriority})}
-                  className={`flex-1 py-3 text-[10px] font-black uppercase rounded-2xl border transition-all ${formData.priority === p ? priorityStyles[p as TaskPriority] + ' border-current scale-105' : 'bg-slate-950/50 border-slate-800/50 text-slate-600 hover:text-slate-400'}`}
+                  className={`flex-1 py-2 text-[9px] font-black uppercase rounded-2xl border transition-all ${formData.priority === p ? priorityStyles[p as TaskPriority] + ' border-current scale-105' : 'bg-slate-950/50 border-slate-800/50 text-slate-600 hover:text-slate-400'}`}
                 >
                   {p}
                 </button>
               ))}
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-             <div className="flex gap-2 p-1.5 bg-slate-950/80 rounded-2xl border border-slate-800">
-                <button onClick={() => setEntryMode('estimated')} className={`flex-1 py-2 text-[9px] uppercase tracking-[0.2em] font-black rounded-xl transition-all ${entryMode === 'estimated' ? 'bg-theme-primary text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>Est</button>
-                <button onClick={() => setEntryMode('picker')} className={`flex-1 py-2 text-[9px] uppercase tracking-[0.2em] font-black rounded-xl transition-all ${entryMode === 'picker' ? 'bg-theme-primary text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>Pick</button>
-             </div>
-             {entryMode === 'estimated' ? (
-              <select className="w-full bg-slate-950/80 border border-slate-800 rounded-2xl px-5 py-3 text-xs text-white outline-none" value={formData.estimated} onChange={e => setFormData({...formData, estimated: e.target.value})}>
-                <option value="15">15 Minutes</option>
-                <option value="30">30 Minutes</option>
-                <option value="60">1.0 Hour</option>
-                <option value="120">2.0 Hours</option>
-                <option value="240">4.0 Hours</option>
-              </select>
-             ) : (
-              <div className="grid grid-cols-2 gap-2">
-                <input type="time" className="w-full bg-slate-950/80 border border-slate-800 rounded-2xl px-4 py-3 text-xs text-white" value={formData.startTime} onChange={e => setFormData({...formData, startTime: e.target.value})} />
-                <input type="time" className="w-full bg-slate-950/80 border border-slate-800 rounded-2xl px-4 py-3 text-xs text-white" value={formData.endTime} onChange={e => setFormData({...formData, endTime: e.target.value})} />
-              </div>
-             )}
-          </div>
-          <button onClick={addTask} className="w-full py-5 bg-theme-primary hover:opacity-90 text-white rounded-[2rem] text-xs font-black uppercase tracking-[0.3em] transition-all shadow-xl accent-shadow active:scale-[0.98] flex items-center justify-center gap-3">
-            <Plus size={18} strokeWidth={3} /> Activate New Module
+          <button onClick={addTask} className="w-full py-3 bg-theme-primary hover:opacity-90 text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.3em] transition-all shadow-xl accent-shadow active:scale-[0.98]">
+            Assign Module
           </button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto space-y-6 pr-2 custom-scrollbar">
+      {/* Fixed Height Scrollable Task List */}
+      <div className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar">
         {log.tasks.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-slate-700">
-            <Layers size={64} className="mb-6 opacity-10 animate-pulse" />
-            <p className="text-xs font-black uppercase tracking-[0.5em] opacity-30">Null Stack Activity</p>
+            <Layers size={48} className="mb-4 opacity-10" />
+            <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-30 text-center px-6">System ready for assignment broadcast.</p>
           </div>
         ) : (
           log.tasks.map(task => {
@@ -260,62 +238,60 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
             const isAdminAssigned = task.assignedBy && task.assignedBy !== currentUserId;
 
             return (
-              <div key={task.id} className={`group relative flex flex-col gap-4 p-6 border rounded-[2.5rem] transition-all duration-500 float-anim ${isCompleted ? 'bg-emerald-500/5 border-emerald-500/10' : isRunning ? 'bg-theme-primary/10 border-theme-primary/40 shadow-xl scale-[1.02]' : 'bg-slate-900/40 border-slate-800/50 hover:border-slate-700'}`}>
+              <div key={task.id} className={`group relative flex flex-col gap-4 p-5 border rounded-[2rem] transition-all duration-300 ${isCompleted ? 'bg-emerald-500/5 border-emerald-500/10' : isRunning ? 'bg-theme-primary/10 border-theme-primary/40 shadow-lg' : 'bg-slate-900/40 border-slate-800/50 hover:border-slate-700'}`}>
                 <div className="flex items-start gap-4">
-                  <div className={`p-4 rounded-2xl shrink-0 transition-all duration-500 ${isCompleted ? 'bg-emerald-500 text-white' : isRunning ? 'bg-theme-primary text-white shadow-[0_0_20px_var(--primary-glow)]' : 'bg-slate-950 text-slate-500'}`}>
-                    {isCompleted ? <Check size={22} strokeWidth={3} /> : isRunning ? <Timer size={22} className="animate-spin-slow" /> : <Clock size={22} />}
+                  <div className={`p-3 rounded-xl shrink-0 transition-all duration-500 ${isCompleted ? 'bg-emerald-500 text-white' : isRunning ? 'bg-theme-primary text-white' : 'bg-slate-950 text-slate-500'}`}>
+                    {isCompleted ? <Check size={18} strokeWidth={3} /> : isRunning ? <Timer size={18} className="animate-spin-slow" /> : <Clock size={18} />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-2">
-                       <div className="flex items-center gap-3">
-                         <h4 className={`text-base font-black truncate uppercase tracking-tight ${isCompleted ? 'text-slate-600 line-through' : 'text-white'}`}>{task.title}</h4>
+                       <div className="flex items-center gap-2">
+                         <h4 className={`text-sm font-black truncate uppercase tracking-tight ${isCompleted ? 'text-slate-600 line-through' : 'text-white'}`}>{task.title}</h4>
                          {isAdminAssigned && (
-                           <span title="Administrator Link" className="text-theme-primary">
-                             <ShieldAlert size={14} />
-                           </span>
+                           <ShieldAlert size={12} className="text-theme-primary" />
                          )}
                        </div>
-                       <div className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border transition-all ${priorityStyles[task.priority || 'low']}`}>
+                       <div className={`px-2 py-0.5 rounded-full text-[7px] font-black uppercase tracking-widest border ${priorityStyles[task.priority || 'low']}`}>
                          {task.priority || 'low'}
                        </div>
                     </div>
                     
-                    <div className="flex items-center gap-6 text-[10px] text-slate-500 font-black uppercase tracking-widest mb-4">
-                       <div className="flex items-center gap-2"><Target size={12} className="text-theme-primary" /> Budget: {formatMinutesToDisplay(task.duration)}</div>
-                       <div className="flex items-center gap-2"><Clock size={12} className="text-indigo-400" /> Spent: {formatMinutesToDisplay(currentTotal)}</div>
+                    <div className="flex items-center gap-4 text-[8px] text-slate-500 font-black uppercase tracking-widest mb-3">
+                       <div className="flex items-center gap-1.5"><Target size={10} className="text-theme-primary" /> {formatMinutesToDisplay(task.duration)}</div>
+                       <div className="flex items-center gap-1.5"><Clock size={10} className="text-indigo-400" /> {formatMinutesToDisplay(currentTotal)}</div>
                     </div>
 
-                    <div className="relative h-2 w-full bg-slate-950/80 rounded-full overflow-hidden shadow-inner border border-white/5">
+                    <div className="relative h-1.5 w-full bg-slate-950/80 rounded-full overflow-hidden shadow-inner border border-white/5">
                        <div className={`absolute top-0 left-0 h-full transition-all duration-700 ease-out ${isCompleted ? 'bg-emerald-500' : 'bg-theme-primary'}`} style={{ width: `${progress}%` }}></div>
                     </div>
                   </div>
 
                   {!isEditing && (
-                    <div className="flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-2 group-hover:translate-x-0">
-                      <button onClick={() => startEditing(task)} className="p-2 text-slate-500 hover:text-white bg-slate-950/40 rounded-xl transition-all"><Edit3 size={16} /></button>
+                    <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200">
+                      <button onClick={() => startEditing(task)} className="p-1.5 text-slate-500 hover:text-white"><Edit3 size={14} /></button>
                       {(!isAdminAssigned || userRole === 'admin') && (
-                        <button onClick={() => removeTask(task.id)} className="p-2 text-slate-500 hover:text-rose-400 bg-slate-950/40 rounded-xl transition-all"><Trash2 size={16} /></button>
+                        <button onClick={() => removeTask(task.id)} className="p-1.5 text-slate-500 hover:text-rose-400"><Trash2 size={14} /></button>
                       )}
                     </div>
                   )}
                 </div>
 
-                <div className="flex items-center justify-between pt-4 border-t border-white/5">
-                  <div className="flex gap-3">
+                <div className="flex items-center justify-between pt-3 border-t border-white/5">
+                  <div className="flex gap-2">
                     {!isCompleted ? (
                       <>
                         {!isRunning ? (
-                          <button onClick={() => startTask(task.id)} className="px-6 py-2.5 bg-theme-primary hover:opacity-90 text-white text-[10px] font-black uppercase tracking-widest rounded-[1.2rem] transition-all shadow-lg active:scale-95">Initiate</button>
+                          <button onClick={() => startTask(task.id)} className="px-4 py-1.5 bg-theme-primary text-white text-[8px] font-black uppercase rounded-lg active:scale-95">Initiate</button>
                         ) : (
-                          <button onClick={() => pauseTask(task.id)} className="px-6 py-2.5 bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-black uppercase tracking-widest rounded-[1.2rem] transition-all shadow-lg active:scale-95">Suspend</button>
+                          <button onClick={() => pauseTask(task.id)} className="px-4 py-1.5 bg-amber-600 text-white text-[8px] font-black uppercase rounded-lg active:scale-95">Suspend</button>
                         )}
-                        <button onClick={() => completeTask(task.id)} className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black uppercase tracking-widest rounded-[1.2rem] transition-all shadow-lg active:scale-95">Finalize</button>
+                        <button onClick={() => completeTask(task.id)} className="px-4 py-1.5 bg-emerald-600 text-white text-[8px] font-black uppercase rounded-lg active:scale-95">Finalize</button>
                       </>
                     ) : (
-                      <button onClick={() => resumeTask(task.id)} className="px-6 py-2.5 bg-slate-800 border border-slate-700 text-slate-400 text-[10px] font-black uppercase tracking-widest rounded-[1.2rem] transition-all hover:text-white">Re-Open</button>
+                      <button onClick={() => resumeTask(task.id)} className="px-4 py-1.5 bg-slate-800 text-slate-400 text-[8px] font-black uppercase rounded-lg">Re-Open</button>
                     )}
                   </div>
-                  {isRunning && <span className="text-[10px] font-black text-theme-primary uppercase tracking-[0.2em] animate-pulse">Node Syncing...</span>}
+                  {isRunning && <span className="text-[8px] font-black text-theme-primary uppercase animate-pulse">Tracking Active</span>}
                 </div>
               </div>
             );

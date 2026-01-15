@@ -230,8 +230,8 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    // Faster polling (15s) for "instant" appearance of admin-assigned tasks
-    const cloudTimer = setInterval(() => loadFromCloud(true), 15000);
+    // Ultra-fast polling (10s) to satisfy the "instant" appearance requirement for admin tasks
+    const cloudTimer = setInterval(() => loadFromCloud(true), 10000);
     return () => {
       clearInterval(timer);
       clearInterval(cloudTimer);
@@ -495,7 +495,7 @@ const App: React.FC = () => {
                   </div>
 
                   {/* Row 3: Activity Tracking & Shift Control */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[700px]">
                     <TaskPanel log={todayLog} onUpdate={updateTodayLog} historicalLogs={currentUserLogs} userRole={state.currentUser?.role} currentUserId={state.currentUser?.id} />
                     <AttendancePanel log={todayLog} config={state.config} onUpdate={updateTodayLog} logs={currentUserLogs} state={state} />
                   </div>
