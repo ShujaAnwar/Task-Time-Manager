@@ -45,7 +45,8 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
     const avgEfficiency = totalOffice > 0 ? (totalActual / totalOffice) * 100 : 0;
     const totalTasks = monthlyLogs.reduce((sum, l) => sum + l.tasks.length, 0);
     const completedTasks = monthlyLogs.reduce((sum, l) => sum + l.tasks.filter(t => t.status === 'completed').length, 0);
-    return { totalActual, totalOffice, lateCount, avgEfficiency, totalTasks, completedTasks };
+    const totalAllocated = monthlyLogs.reduce((sum, l) => sum + l.tasks.reduce((asum, t) => asum + t.duration, 0), 0);
+    return { totalActual, totalOffice, lateCount, avgEfficiency, totalTasks, completedTasks, totalAllocated };
   }, [monthlyLogs, config.officeStartTime]);
 
   const chartData = useMemo(() => {
@@ -77,11 +78,11 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
         doc.setTextColor(255, 255, 255);
         doc.setFontSize(22);
         doc.setFont('helvetica', 'bold');
-        doc.text('DETAILED WORKLOAD AUDIT', margin, 22);
+        doc.text('PERFORMANCE AUDIT REPORT', margin, 22);
         doc.setFontSize(10);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(99, 102, 241); 
-        doc.text(`AUDITEE: ${user?.name?.toUpperCase() || 'SYSTEM USER'}`, margin, 32);
+        doc.text(`USER: ${user?.name?.toUpperCase() || 'SYSTEM USER'}`, margin, 32);
         doc.setFontSize(8);
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(148, 163, 184); 
@@ -89,6 +90,7 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
         doc.text(`GENERATED: ${new Date().toLocaleString()}`, pageWidth - margin - 55, 32);
         doc.text(`PERIOD: ${monthName} ${currentYear}`, pageWidth - margin - 55, 38);
         if (pageNum > 1) {
+          doc.setTextColor(148, 163, 184);
           doc.text(`Page ${pageNum}`, pageWidth - margin - 15, 10);
         }
       };
@@ -127,11 +129,10 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
 
       y += 30;
 
-      // --- DETAILED TASK TABLE ---
       const tableHeaders = [
         { name: 'DATE', w: 22 },
         { name: 'TASK DESCRIPTION', w: pageWidth - (margin * 2) - 85 },
-        { name: 'PLANNED', w: 22 },
+        { name: 'ALLOCATED', w: 22 },
         { name: 'ACTUAL', w: 22 },
         { name: 'STATUS', w: 19 }
       ];
@@ -159,7 +160,7 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
 
       monthlyLogs.forEach((log) => {
         log.tasks.forEach((task) => {
-          if (y > pageHeight - 20) {
+          if (y > pageHeight - 40) { // Keep space for summary footer
             doc.addPage();
             currentPDFPage++;
             drawReportHeader(currentPDFPage);
@@ -180,18 +181,13 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
           let curX = margin;
           doc.setFontSize(7);
           doc.text(log.date, curX + 3, y + 6.5);
-          doc.line(curX + tableHeaders[0].w, y, curX + tableHeaders[0].w, y + 10);
           curX += tableHeaders[0].w;
           
-          doc.setFont('helvetica', 'bold');
           const titleText = task.title.length > 60 ? task.title.substring(0, 57) + "..." : task.title;
           doc.text(titleText, curX + 3, y + 6.5);
-          doc.setFont('helvetica', 'normal');
-          doc.line(curX + tableHeaders[1].w, y, curX + tableHeaders[1].w, y + 10);
           curX += tableHeaders[1].w;
           
           doc.text(formatMinutesToDisplay(task.duration), curX + 3, y + 6.5);
-          doc.line(curX + tableHeaders[2].w, y, curX + tableHeaders[2].w, y + 10);
           curX += tableHeaders[2].w;
           
           if (task.actualDuration > task.duration) {
@@ -201,24 +197,53 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
           }
           doc.text(formatMinutesToDisplay(task.actualDuration), curX + 3, y + 6.5);
           doc.setTextColor(31, 41, 55);
-          doc.line(curX + tableHeaders[3].w, y, curX + tableHeaders[3].w, y + 10);
           curX += tableHeaders[3].w;
           
           doc.setFontSize(6);
           doc.text(task.status.toUpperCase(), curX + 3, y + 6.5);
+          doc.setFontSize(7);
           
           y += 10;
           rowCount++;
         });
       });
 
+      // --- SUMMARY FOOTER SECTION ---
+      if (y > pageHeight - 35) {
+        doc.addPage();
+        currentPDFPage++;
+        drawReportHeader(currentPDFPage);
+        y = 55;
+      }
+      
+      y += 10;
+      doc.setDrawColor(15, 23, 42);
+      doc.setLineWidth(0.5);
+      doc.line(margin, y, pageWidth - margin, y);
+      y += 5;
+      
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(15, 23, 42);
+      doc.text('AUDIT SUMMARY TOTALS', margin, y + 5);
+      
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margin, y + 8, pageWidth - (margin * 2), 15, 'F');
+      
+      doc.setFontSize(8);
+      doc.text('TOTAL ALLOCATED TIME:', margin + 5, y + 17);
+      doc.text(formatMinutesToDisplay(stats.totalAllocated), margin + 55, y + 17);
+      
+      doc.text('TOTAL ACTUAL TIME USED:', margin + pageWidth/2, y + 17);
+      doc.text(formatMinutesToDisplay(stats.totalActual), margin + pageWidth/2 + 55, y + 17);
+
       doc.setFontSize(7);
       doc.setTextColor(148, 163, 184);
       const footerY = pageHeight - 10;
-      doc.text('PROPRIETARY PERFORMANCE AUDIT DATA. ALL ENTRIES SECURED VIA SYSTEM TIMESTAMP.', margin, footerY);
+      doc.text('DETAILED AUDIT LOGS GENERATED BY PERFORMANCE ENGINE V11. DATA VERIFIED BY NODE TIMESTAMP.', margin, footerY);
       doc.text(`Page ${currentPDFPage}`, pageWidth - margin - 15, footerY);
 
-      doc.save(`Task_Audit_${user?.id || 'User'}_${monthName}_${currentYear}.pdf`);
+      doc.save(`Performance_Audit_${user?.id || 'User'}_${monthName}.pdf`);
     } catch (err) {
       console.error("PDF export failed:", err);
     } finally {
@@ -233,7 +258,7 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
       monthlyLogs.forEach(l => l.tasks.forEach(t => tasksData.push({
         Date: l.date,
         "Task Title": t.title,
-        "Planned Minutes": t.duration,
+        "Allocated Minutes": t.duration,
         "Actual Minutes": t.actualDuration,
         "Difference": t.actualDuration - t.duration,
         "Status": t.status
@@ -252,51 +277,51 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
   const todayLog = logs[todayStr] || { date: todayStr, tasks: [] };
 
   return (
-    <div className={`bg-slate-900/40 border border-slate-800 rounded-3xl p-6 backdrop-blur-xl shadow-2xl flex flex-col ${isFullWidth ? 'min-h-screen' : ''}`}>
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-8 no-print">
+    <div className={`bg-slate-900/40 border border-slate-800 rounded-3xl p-4 md:p-6 backdrop-blur-xl shadow-2xl flex flex-col ${isFullWidth ? 'min-h-screen' : ''}`}>
+      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 mb-8 no-print">
         <div>
           <h3 className="text-xl font-bold flex items-center gap-2.5 text-white">
             <div className="p-2.5 bg-indigo-600/20 text-indigo-400 rounded-2xl border border-indigo-500/20 shadow-inner">
               <BarChart2 size={22} />
             </div>
-            Workforce Intelligence
+            Output Intelligence
           </h3>
           <p className="text-xs text-slate-500 mt-1">Granular task performance and time-utilization metrics</p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex gap-1 p-1 bg-slate-950/80 rounded-2xl border border-slate-800/50">
-            <button onClick={() => setReportType('daily')} className={`px-4 py-2 text-[10px] font-black uppercase tracking-[0.15em] rounded-xl transition-all ${reportType === 'daily' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-600 hover:text-slate-300'}`}>Daily</button>
-            <button onClick={() => setReportType('monthly')} className={`px-4 py-2 text-[10px] font-black uppercase tracking-[0.15em] rounded-xl transition-all ${reportType === 'monthly' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-600 hover:text-slate-300'}`}>Monthly</button>
+        <div className="flex flex-wrap items-center gap-2 md:gap-3 w-full lg:w-auto">
+          <div className="flex gap-1 p-1 bg-slate-950/80 rounded-2xl border border-slate-800/50 w-full md:w-auto">
+            <button onClick={() => setReportType('daily')} className={`flex-1 md:flex-none px-4 py-2 text-[10px] font-black uppercase tracking-[0.15em] rounded-xl transition-all ${reportType === 'daily' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-600 hover:text-slate-300'}`}>Daily</button>
+            <button onClick={() => setReportType('monthly')} className={`flex-1 md:flex-none px-4 py-2 text-[10px] font-black uppercase tracking-[0.15em] rounded-xl transition-all ${reportType === 'monthly' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-600 hover:text-slate-300'}`}>Monthly</button>
           </div>
-          <button onClick={exportToPDF} disabled={!!isExporting} className="flex items-center gap-2 px-4 py-2.5 bg-slate-800/80 hover:bg-slate-700 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider border border-slate-700 transition-all active:scale-95 disabled:opacity-50">
-            {isExporting === 'pdf' ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />} Task Audit PDF
+          <button onClick={exportToPDF} disabled={!!isExporting} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-800/80 hover:bg-slate-700 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider border border-slate-700 transition-all active:scale-95 disabled:opacity-50">
+            {isExporting === 'pdf' ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />} PDF Audit
           </button>
-          <button onClick={exportToExcel} disabled={!!isExporting} className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all shadow-lg active:scale-95 disabled:opacity-50">
+          <button onClick={exportToExcel} disabled={!!isExporting} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all shadow-lg active:scale-95 disabled:opacity-50">
             {isExporting === 'excel' ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />} XLS Report
           </button>
         </div>
       </div>
 
-      <div className="flex-1 space-y-8 p-4 bg-transparent">
+      <div className="flex-1 space-y-8 bg-transparent">
         {reportType === 'daily' ? (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-slate-950/50 p-5 rounded-[2rem] border border-slate-800">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black mb-2">Shift Start</p>
-                  <p className="text-2xl font-black text-white tabular-nums">{todayLog.timeIn || '—'}</p>
+                <div className="bg-slate-950/50 p-4 md:p-5 rounded-[2rem] border border-slate-800">
+                  <p className="text-[9px] text-slate-500 uppercase tracking-widest font-black mb-2">Shift Start</p>
+                  <p className="text-xl md:text-2xl font-black text-white tabular-nums">{todayLog.timeIn || '—'}</p>
                 </div>
-                <div className="bg-slate-950/50 p-5 rounded-[2rem] border border-slate-800">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black mb-2">Task Time</p>
-                  <p className="text-2xl font-black text-indigo-400 tabular-nums">{formatMinutesToDisplay(todayLog.tasks.reduce((s, t) => s + t.actualDuration, 0))}</p>
+                <div className="bg-slate-950/50 p-4 md:p-5 rounded-[2rem] border border-slate-800">
+                  <p className="text-[9px] text-slate-500 uppercase tracking-widest font-black mb-2">Task Time</p>
+                  <p className="text-xl md:text-2xl font-black text-indigo-400 tabular-nums">{formatMinutesToDisplay(todayLog.tasks.reduce((s, t) => s + t.actualDuration, 0))}</p>
                 </div>
-                <div className="bg-slate-950/50 p-5 rounded-[2rem] border border-slate-800">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black mb-2">Office Hours</p>
-                  <p className="text-2xl font-black text-white tabular-nums">{(todayLog.timeIn && todayLog.timeOut) ? formatMinutesToDisplay(diffMinutes(todayLog.timeIn, todayLog.timeOut)) : '0h 0m'}</p>
+                <div className="bg-slate-950/50 p-4 md:p-5 rounded-[2rem] border border-slate-800">
+                  <p className="text-[9px] text-slate-500 uppercase tracking-widest font-black mb-2">Office Hours</p>
+                  <p className="text-xl md:text-2xl font-black text-white tabular-nums">{(todayLog.timeIn && todayLog.timeOut) ? formatMinutesToDisplay(diffMinutes(todayLog.timeIn, todayLog.timeOut)) : '0h 0m'}</p>
                 </div>
-                <div className="bg-slate-950/50 p-5 rounded-[2rem] border border-slate-800">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black mb-2">Efficiency</p>
-                  <p className="text-2xl font-black text-emerald-400 uppercase tracking-widest">A-Grade</p>
+                <div className="bg-slate-950/50 p-4 md:p-5 rounded-[2rem] border border-slate-800">
+                  <p className="text-[9px] text-slate-500 uppercase tracking-widest font-black mb-2">Efficiency</p>
+                  <p className="text-xl md:text-2xl font-black text-emerald-400 uppercase tracking-widest">A-Grade</p>
                 </div>
              </div>
              <div className="bg-slate-950/30 rounded-[2.5rem] border border-slate-800/50 overflow-hidden">
@@ -314,12 +339,12 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
                           <p className="text-sm font-bold text-white">{t.title}</p>
                           <p className={`text-[9px] uppercase font-black tracking-widest mt-1 ${t.status === 'completed' ? 'text-emerald-500' : 'text-amber-500'}`}>{t.status}</p>
                         </div>
-                        <div className="flex items-center gap-8">
+                        <div className="flex items-center gap-4 md:gap-8">
                           <div className="text-right">
                             <p className="text-[9px] text-slate-600 uppercase font-black mb-1">Actual</p>
                             <p className="text-sm font-mono font-bold text-indigo-400">{formatMinutesToDisplay(t.actualDuration)}</p>
                           </div>
-                          <div className="text-right border-l border-slate-800 pl-6">
+                          <div className="text-right border-l border-slate-800 pl-4 md:pl-6">
                             <p className="text-[9px] text-slate-600 uppercase font-black mb-1">Plan</p>
                             <p className="text-sm font-mono font-bold text-slate-500">{formatMinutesToDisplay(t.duration)}</p>
                           </div>
@@ -350,11 +375,11 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
                   <p className="text-3xl font-black text-emerald-400">{stats.completedTasks}</p>
                </div>
             </div>
-            <div className="bg-slate-950/40 p-8 rounded-[3rem] border border-slate-800/50">
+            <div className="bg-slate-950/40 p-4 md:p-8 rounded-[3rem] border border-slate-800/50">
                 <div className="flex justify-between items-center mb-10">
                   <h4 className="text-[12px] font-black text-white uppercase tracking-[0.3em] flex items-center gap-2"><TrendingUp size={16} /> Productivity Audit Heatmap</h4>
                 </div>
-                <div className="h-80">
+                <div className="h-64 md:h-80">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={chartData}>
                       <CartesianGrid strokeDasharray="5 5" stroke="#1e293b" vertical={false} />

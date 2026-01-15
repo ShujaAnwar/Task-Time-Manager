@@ -17,6 +17,7 @@ export enum AttendanceStatus {
   LATE = 'Late',
   HALFDAY = 'Half Day',
   ABSENT = 'Absent',
+  LEAVE = 'Leave',
   INCOMPLETE = 'Incomplete'
 }
 
@@ -26,6 +27,7 @@ export interface DayLog {
   date: string; // YYYY-MM-DD
   timeIn?: string; // HH:mm
   timeOut?: string; // HH:mm
+  status?: AttendanceStatus;
   tasks: Task[];
 }
 
