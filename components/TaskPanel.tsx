@@ -214,6 +214,7 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
               {['low', 'medium', 'high'].map((p) => (
                 <button 
                   key={p}
+                  type="button"
                   onClick={() => setFormData({...formData, priority: p as TaskPriority})}
                   className={`flex-1 py-2 text-[9px] font-black uppercase rounded-lg border transition-all ${formData.priority === p ? priorityColors[p as TaskPriority] : 'bg-slate-950 border-slate-800 text-slate-600'}`}
                 >
@@ -281,7 +282,11 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
                         <div className="flex items-center justify-between mb-2">
                            <div className="flex items-center gap-2">
                              <h4 className={`text-sm font-bold truncate ${isCompleted ? 'text-slate-500 line-through' : 'text-white'}`}>{task.title}</h4>
-                             {isAdminAssigned && <ShieldAlert size={12} className="text-indigo-400" title="Assigned by Administrator" />}
+                             {isAdminAssigned && (
+                               <span title="Assigned by Administrator" className="text-indigo-400">
+                                 <ShieldAlert size={12} />
+                               </span>
+                             )}
                            </div>
                            <div className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border ${priorityColors[task.priority || 'low']}`}>
                              {task.priority || 'low'}
@@ -291,7 +296,7 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
                         <div className="flex items-center gap-4 text-[9px] text-slate-500 font-bold uppercase tracking-tighter mb-3">
                            <div className="flex items-center gap-1"><Clock size={10} /> {formatMinutesToDisplay(task.duration)}</div>
                            {task.dueDate && <div className="flex items-center gap-1 text-rose-400/80"><Calendar size={10} /> Due {task.dueDate}</div>}
-                           {isAdminAssigned && <div className="text-indigo-400">ID: {task.assignedBy}</div>}
+                           {isAdminAssigned && <div className="text-indigo-400 font-black">ASSIGNED</div>}
                         </div>
 
                         <div className="relative h-1.5 w-full bg-slate-950 rounded-full overflow-hidden shadow-inner">
@@ -326,7 +331,7 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
                         <button onClick={() => resumeTask(task.id)} className="px-3 py-1.5 bg-slate-900 border border-slate-700 text-slate-400 text-[8px] font-black uppercase tracking-widest rounded-lg">Resume</button>
                       )}
                     </div>
-                    {isRunning && <span className="text-[8px] font-black text-indigo-400 uppercase animate-pulse">Live</span>}
+                    {isRunning && <span className="text-[8px] font-black text-indigo-400 uppercase animate-pulse">Live Tracking</span>}
                   </div>
                 )}
               </div>
@@ -337,11 +342,11 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
 
       <div className="mt-6 pt-6 border-t border-slate-800 flex items-center justify-between">
         <div className="space-y-1">
-          <p className="text-[9px] text-slate-600 uppercase tracking-widest font-black">Planned</p>
+          <p className="text-[9px] text-slate-600 uppercase tracking-widest font-black">Cycle Budget</p>
           <p className="text-lg font-black text-white">{formatMinutesToDisplay(totalTaskTime)}</p>
         </div>
         <div className="text-right space-y-1">
-          <p className="text-[9px] text-slate-600 uppercase tracking-widest font-black">Actual Incurred</p>
+          <p className="text-[9px] text-slate-600 uppercase tracking-widest font-black">Incurred Output</p>
           <p className={`text-lg font-black ${totalActualTime > totalTaskTime ? 'text-rose-400' : 'text-emerald-400'}`}>{formatMinutesToDisplay(totalActualTime)}</p>
         </div>
       </div>
