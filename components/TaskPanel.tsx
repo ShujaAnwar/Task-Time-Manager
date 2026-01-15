@@ -5,20 +5,16 @@ import {
   Plus, 
   Clock, 
   Trash2, 
-  Copy, 
   Layers,
   Play,
   Pause,
   Timer,
   Check,
   Edit3,
-  Calendar,
   ShieldAlert,
-  Zap,
   Target,
-  ChevronRight,
-  Info,
-  RotateCcw
+  RotateCcw,
+  Circle
 } from 'lucide-react';
 import { DayLog, Task, TaskPriority } from '../types';
 import { diffMinutes, formatMinutesToDisplay, getTodayStr } from '../utils/time';
@@ -36,13 +32,10 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    startTime: '',
-    endTime: '',
     estimated: '60',
     priority: 'low' as TaskPriority,
     dueDate: getTodayStr()
   });
-  const [entryMode, setEntryMode] = useState<'picker' | 'estimated'>('estimated');
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<Partial<Task>>({});
   const [, setTick] = useState(0);
@@ -54,19 +47,11 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
 
   const addTask = () => {
     if (!formData.title) return;
-    let duration = 0;
-    if (entryMode === 'picker' && formData.startTime && formData.endTime) {
-      duration = diffMinutes(formData.startTime, formData.endTime);
-    } else {
-      duration = parseInt(formData.estimated);
-    }
     const newTask: Task = {
       id: Math.random().toString(36).substr(2, 9),
       title: formData.title,
       description: formData.description,
-      startTime: entryMode === 'picker' ? formData.startTime : undefined,
-      endTime: entryMode === 'picker' ? formData.endTime : undefined,
-      duration,
+      duration: parseInt(formData.estimated),
       actualDuration: 0,
       status: 'pending',
       timerStartedAt: undefined, 
@@ -79,8 +64,6 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
     setFormData({ 
       title: '', 
       description: '', 
-      startTime: '', 
-      endTime: '', 
       estimated: '60', 
       priority: 'low',
       dueDate: getTodayStr() 
@@ -134,24 +117,10 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
     const task = log.tasks.find(t => t.id === id);
     if (!task) return;
     if (userRole === 'user' && task.assignedBy && task.assignedBy !== currentUserId) {
-      alert("Policy Restriction: Administrator-assigned tasks cannot be deleted by standard users.");
+      alert("Policy Restriction: Admin tasks cannot be deleted.");
       return;
     }
     onUpdate(prev => ({ ...prev, tasks: prev.tasks.filter(t => t.id !== id) }));
-  };
-
-  const cloneTask = (task: Task) => {
-    const cloned: Task = {
-      ...task,
-      id: Math.random().toString(36).substr(2, 9),
-      status: 'pending',
-      actualDuration: 0,
-      timerStartedAt: undefined,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      assignedBy: undefined 
-    };
-    onUpdate(prev => ({ ...prev, tasks: [cloned, ...prev.tasks] }));
   };
 
   const startEditing = (task: Task) => {
@@ -159,175 +128,118 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
     setEditFormData({ ...task });
   };
 
-  const saveEdit = () => {
-    if (!editingTaskId || !editFormData.title) return;
-    onUpdate(prev => ({
-      ...prev,
-      tasks: prev.tasks.map(t => t.id === editingTaskId ? { ...t, ...editFormData, updatedAt: Date.now() } : t)
-    }));
-    setEditingTaskId(null);
-  };
-
-  const priorityStyles = {
-    low: 'text-emerald-400 bg-emerald-400/10 border-emerald-500/20 shadow-[0_0_15px_-5px_rgba(16,185,129,0.3)]',
-    medium: 'text-amber-400 bg-amber-400/10 border-amber-500/20 shadow-[0_0_15px_-5px_rgba(245,158,11,0.3)]',
-    high: 'text-rose-400 bg-rose-400/10 border-rose-500/20 shadow-[0_0_15px_-5px_rgba(244,63,94,0.3)]'
+  const priorityMeta = {
+    low: { color: 'text-emerald-400', bg: 'bg-emerald-400/10', border: 'border-emerald-500/20' },
+    medium: { color: 'text-amber-400', bg: 'bg-amber-400/10', border: 'border-amber-500/20' },
+    high: { color: 'text-rose-400', bg: 'bg-rose-400/10', border: 'border-rose-500/20' }
   };
 
   return (
-    <div className={`glass-panel border rounded-[2.5rem] md:rounded-[3rem] p-5 md:p-8 backdrop-blur-md shadow-2xl flex flex-col ${isFullWidth ? 'min-h-[85vh]' : 'h-full max-h-full overflow-hidden'}`}>
-      <div className="flex items-center justify-between mb-6 shrink-0">
-        <div className="flex items-center gap-4">
-          <div className="p-3 bg-theme-primary/20 text-theme-primary rounded-2xl shadow-xl">
-            <CheckSquare size={24} strokeWidth={2.5} />
+    <div className={`glass-panel border rounded-[2rem] p-4 md:p-6 backdrop-blur-md shadow-2xl flex flex-col ${isFullWidth ? 'min-h-[85vh]' : 'h-full max-h-full overflow-hidden'}`}>
+      <div className="flex items-center justify-between mb-4 shrink-0 px-2">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-theme-primary/20 text-theme-primary rounded-xl">
+            <CheckSquare size={18} strokeWidth={2.5} />
           </div>
-          <div>
-            <h3 className="text-xl font-black text-white uppercase tracking-tight">Activity Board</h3>
-            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black opacity-80">Mission Tracking</p>
+          <h3 className="text-sm font-black text-white uppercase tracking-wider">Workload Hub</h3>
+        </div>
+      </div>
+
+      {/* Compact Entry Bar */}
+      <div className="mb-4 p-3 glass-card rounded-2xl border-slate-800/50 shrink-0">
+        <div className="flex flex-col md:flex-row gap-2">
+          <input 
+            type="text" 
+            placeholder="New objective..." 
+            className="flex-1 bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-2 text-xs text-white outline-none focus:border-theme-primary placeholder:text-slate-600"
+            value={formData.title}
+            onChange={e => setFormData({...formData, title: e.target.value})}
+          />
+          <div className="flex gap-1">
+            <select 
+              value={formData.priority}
+              onChange={e => setFormData({...formData, priority: e.target.value as TaskPriority})}
+              className="bg-slate-950 border border-slate-800 rounded-xl px-2 text-[10px] font-black text-slate-400 uppercase outline-none"
+            >
+              <option value="low">Low</option>
+              <option value="medium">Med</option>
+              <option value="high">High</option>
+            </select>
+            <button onClick={addTask} className="bg-theme-primary px-4 py-2 rounded-xl text-white text-[10px] font-black uppercase tracking-widest hover:opacity-90 active:scale-95 transition-all">
+              Add
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Task Entry Section - Fixed Height */}
-      <div className="mb-6 p-4 md:p-6 glass-card rounded-[2rem] border-slate-800/50 shrink-0 shadow-lg">
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <input 
-              type="text" 
-              placeholder="Assign New Objective..." 
-              className="w-full bg-slate-950/80 border border-slate-800 rounded-2xl px-5 py-3.5 text-sm text-white focus:border-theme-primary outline-none transition-all placeholder:text-slate-600"
-              value={formData.title}
-              onChange={e => setFormData({...formData, title: e.target.value})}
-            />
-            <div className="flex gap-2">
-              {['low', 'medium', 'high'].map((p) => (
-                <button 
-                  key={p}
-                  type="button"
-                  onClick={() => setFormData({...formData, priority: p as TaskPriority})}
-                  className={`flex-1 py-3 text-[9px] font-black uppercase rounded-2xl border transition-all ${formData.priority === p ? priorityStyles[p as TaskPriority] + ' border-current scale-105' : 'bg-slate-950/50 border-slate-800/50 text-slate-600 hover:text-slate-400'}`}
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
-          </div>
-          <button onClick={addTask} className="w-full py-4 bg-theme-primary hover:opacity-90 text-white rounded-[1.5rem] text-[10px] font-black uppercase tracking-[0.3em] transition-all shadow-xl accent-shadow active:scale-[0.98] flex items-center justify-center gap-3">
-            <Plus size={18} strokeWidth={3} /> Initialize Objective
-          </button>
-        </div>
-      </div>
-
-      {/* Scrollable Tasks - Fixed Height with custom scrollbar */}
-      <div className="flex-1 overflow-y-auto space-y-5 pr-1 md:pr-2 custom-scrollbar">
+      {/* Smart Compact Task List */}
+      <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
         {log.tasks.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-slate-700">
-            <Layers size={50} className="mb-5 opacity-10 animate-pulse" />
-            <p className="text-[10px] font-black uppercase tracking-[0.4em] opacity-30 text-center px-8">Ready for assignment broadcast.</p>
+          <div className="flex flex-col items-center justify-center py-10 text-slate-700 opacity-20">
+            <Layers size={32} className="mb-2" />
+            <p className="text-[9px] font-black uppercase tracking-[0.2em]">Deployment Ready</p>
           </div>
         ) : (
           log.tasks.map(task => {
-            const isEditing = editingTaskId === task.id;
             const isRunning = !!task.timerStartedAt;
             const liveMinutes = isRunning ? Math.floor((Date.now() - task.timerStartedAt!) / 60000) : 0;
             const currentTotal = task.actualDuration + liveMinutes;
             const progress = Math.min(100, Math.round((currentTotal / task.duration) * 100)) || 0;
             const isCompleted = task.status === 'completed';
-            const isAdminAssigned = task.assignedBy && task.assignedBy !== currentUserId;
+            const isAdmin = task.assignedBy && task.assignedBy !== currentUserId;
+            const meta = priorityMeta[task.priority || 'low'];
 
             return (
-              <div key={task.id} className={`group relative flex flex-col p-5 md:p-6 border rounded-[2rem] transition-all duration-300 shadow-xl ${isCompleted ? 'bg-emerald-500/5 border-emerald-500/10' : isRunning ? 'bg-theme-primary/10 border-theme-primary/40 shadow-theme-primary/10 scale-[1.01]' : 'bg-slate-900/60 border-slate-800/50 hover:border-slate-700'}`}>
+              <div key={task.id} className={`group flex flex-col md:flex-row items-center gap-3 p-3 border rounded-2xl transition-all duration-200 ${isCompleted ? 'bg-slate-900/20 border-slate-800/40 opacity-70' : isRunning ? 'bg-theme-primary/10 border-theme-primary/30 shadow-lg shadow-theme-primary/5' : 'bg-slate-900/60 border-slate-800/60 hover:border-slate-700'}`}>
                 
-                {/* Header: Title and Meta */}
-                <div className="flex items-start gap-4 mb-4">
-                  <div className={`p-3.5 rounded-2xl shrink-0 transition-all duration-500 ${isCompleted ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' : isRunning ? 'bg-theme-primary text-white shadow-lg shadow-theme-primary/20' : 'bg-slate-950 text-slate-500 border border-slate-800'}`}>
-                    {isCompleted ? <Check size={20} strokeWidth={3} /> : isRunning ? <Timer size={20} className="animate-spin-slow" /> : <Clock size={20} />}
+                {/* Left: Status & Title */}
+                <div className="flex items-center gap-3 flex-1 min-w-0 w-full">
+                  <div className={`p-2 rounded-lg shrink-0 transition-all ${isCompleted ? 'text-emerald-500' : isRunning ? 'text-theme-primary animate-pulse' : 'text-slate-600'}`}>
+                    {isCompleted ? <Check size={14} strokeWidth={3} /> : isRunning ? <Timer size={14} /> : <Circle size={14} />}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 mb-2">
-                       <div className="flex items-center gap-2">
-                         <h4 className={`text-base font-black truncate uppercase tracking-tight ${isCompleted ? 'text-slate-600 line-through' : 'text-white'}`}>{task.title}</h4>
-                         {isAdminAssigned && (
-                           <ShieldAlert size={14} className="text-theme-primary animate-pulse" />
-                         )}
-                       </div>
-                       <div className="flex items-center gap-2">
-                         <span className={`px-2.5 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest border ${priorityStyles[task.priority || 'low']}`}>
-                           {task.priority || 'low'}
-                         </span>
-                         <span className={`px-2.5 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest border ${isCompleted ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : isRunning ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30' : 'bg-slate-800 text-slate-500 border-slate-700'}`}>
-                           {isCompleted ? 'Completed' : isRunning ? 'Resumed' : 'Pending'}
-                         </span>
-                       </div>
+                    <div className="flex items-center gap-2">
+                      <h4 className={`text-xs font-bold truncate tracking-tight ${isCompleted ? 'text-slate-600 line-through' : 'text-slate-200'}`}>{task.title}</h4>
+                      {isAdmin && <ShieldAlert size={10} className="text-theme-primary shrink-0" />}
                     </div>
-                    
-                    {task.description && (
-                      <p className="text-[11px] text-slate-500 font-medium mb-4 line-clamp-2 leading-relaxed italic opacity-80">
-                        {task.description}
-                      </p>
-                    )}
+                    <div className="flex items-center gap-2 mt-0.5">
+                       <span className={`text-[8px] font-black uppercase tracking-tighter ${meta.color}`}>{task.priority}</span>
+                       <span className="text-[8px] text-slate-600 font-bold uppercase">• {isRunning ? 'Active' : isCompleted ? 'Verified' : 'Ready'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Middle: Smart Data (Percentage & Time) */}
+                <div className="flex items-center gap-4 px-2 shrink-0 w-full md:w-auto justify-between md:justify-end border-t md:border-t-0 border-slate-800/50 pt-2 md:pt-0">
+                  <div className="flex flex-col items-end">
+                    <span className={`text-[11px] font-black tabular-nums ${isCompleted ? 'text-emerald-500' : progress > 80 ? 'text-amber-400' : 'text-theme-primary'}`}>
+                      {progress}%
+                    </span>
+                    <span className="text-[7px] text-slate-600 uppercase font-black tracking-widest">Efficiency</span>
+                  </div>
+                  <div className="flex flex-col items-end">
+                    <span className="text-[10px] font-bold text-slate-400 tabular-nums">
+                      {formatMinutesToDisplay(currentTotal)}
+                    </span>
+                    <span className="text-[7px] text-slate-600 uppercase font-black tracking-widest">Allocated</span>
                   </div>
 
-                  {!isEditing && (
-                    <div className="flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-all duration-200">
-                      <button onClick={() => startEditing(task)} className="p-2 text-slate-500 hover:text-white bg-slate-950/40 rounded-xl transition-all"><Edit3 size={14} /></button>
-                      {(!isAdminAssigned || userRole === 'admin') && (
-                        <button onClick={() => removeTask(task.id)} className="p-2 text-slate-500 hover:text-rose-400 bg-slate-950/40 rounded-xl transition-all"><Trash2 size={14} /></button>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Body: Time Stats & Progress Bar */}
-                <div className="grid grid-cols-2 gap-4 mb-5">
-                   <div className="p-3 bg-slate-950/50 rounded-2xl border border-slate-800/50">
-                      <p className="text-[8px] text-slate-500 uppercase font-black tracking-widest mb-1">Allocated Budget</p>
-                      <div className="flex items-center gap-2 text-xs font-black text-slate-300">
-                         <Target size={12} className="text-theme-primary" /> {formatMinutesToDisplay(task.duration)}
-                      </div>
-                   </div>
-                   <div className="p-3 bg-slate-950/50 rounded-2xl border border-slate-800/50">
-                      <p className="text-[8px] text-slate-500 uppercase font-black tracking-widest mb-1">Actual Expenditure</p>
-                      <div className="flex items-center gap-2 text-xs font-black text-white">
-                         <Clock size={12} className="text-indigo-400" /> {formatMinutesToDisplay(currentTotal)}
-                      </div>
-                   </div>
-                </div>
-
-                <div className="relative h-2 w-full bg-slate-950/80 rounded-full overflow-hidden border border-white/5 mb-6">
-                   <div className={`absolute top-0 left-0 h-full transition-all duration-700 ease-out ${isCompleted ? 'bg-emerald-500' : 'bg-theme-primary shadow-[0_0_10px_var(--primary-glow)]'} ${isRunning ? 'animate-pulse' : ''}`} style={{ width: `${progress}%` }}></div>
-                </div>
-
-                {/* Footer: Action Buttons */}
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-white/5">
-                  <div className="flex gap-3 w-full sm:w-auto">
+                  {/* Right: Compact Actions */}
+                  <div className="flex items-center gap-1">
                     {!isCompleted ? (
                       <>
                         {!isRunning ? (
-                          <button onClick={() => startTask(task.id)} className="flex-1 sm:flex-none px-6 py-3 bg-theme-primary text-white text-[9px] font-black uppercase tracking-widest rounded-xl active:scale-95 shadow-xl shadow-theme-primary/10 flex items-center justify-center gap-2">
-                            <Play size={12} fill="currentColor" /> Initiate Work
-                          </button>
+                          <button onClick={() => startTask(task.id)} className="p-2 bg-theme-primary/10 text-theme-primary rounded-lg hover:bg-theme-primary hover:text-white transition-all"><Play size={12} fill="currentColor" /></button>
                         ) : (
-                          <button onClick={() => pauseTask(task.id)} className="flex-1 sm:flex-none px-6 py-3 bg-amber-600 text-white text-[9px] font-black uppercase tracking-widest rounded-xl active:scale-95 shadow-xl shadow-amber-600/10 flex items-center justify-center gap-2">
-                            <Pause size={12} fill="currentColor" /> Suspend Cycle
-                          </button>
+                          <button onClick={() => pauseTask(task.id)} className="p-2 bg-amber-500/10 text-amber-500 rounded-lg hover:bg-amber-500 hover:text-white transition-all"><Pause size={12} fill="currentColor" /></button>
                         )}
-                        <button onClick={() => completeTask(task.id)} className="flex-1 sm:flex-none px-6 py-3 bg-emerald-600 text-white text-[9px] font-black uppercase tracking-widest rounded-xl active:scale-95 shadow-xl shadow-emerald-600/10 flex items-center justify-center gap-2">
-                          <Check size={12} strokeWidth={3} /> Finalize Out
-                        </button>
+                        <button onClick={() => completeTask(task.id)} className="p-2 bg-emerald-500/10 text-emerald-500 rounded-lg hover:bg-emerald-500 hover:text-white transition-all"><Check size={12} strokeWidth={3} /></button>
                       </>
                     ) : (
-                      <button onClick={() => resumeTask(task.id)} className="w-full sm:w-auto px-8 py-3 bg-slate-800 border border-slate-700 text-slate-400 text-[9px] font-black uppercase tracking-widest rounded-xl hover:text-white hover:bg-slate-700 transition-all flex items-center justify-center gap-2">
-                        <RotateCcw size={12} /> Re-Open Module
-                      </button>
+                      <button onClick={() => resumeTask(task.id)} className="p-2 bg-slate-800 text-slate-400 rounded-lg hover:text-white transition-all"><RotateCcw size={12} /></button>
                     )}
+                    <button onClick={() => removeTask(task.id)} className="p-2 text-slate-600 hover:text-rose-400 transition-all opacity-0 group-hover:opacity-100 hidden md:block"><Trash2 size={12} /></button>
                   </div>
-                  {isRunning && (
-                    <div className="flex items-center gap-2">
-                       <span className="w-1.5 h-1.5 rounded-full bg-theme-primary animate-ping"></span>
-                       <span className="text-[9px] font-black text-theme-primary uppercase tracking-widest">Actively Recording Node Output</span>
-                    </div>
-                  )}
                 </div>
               </div>
             );
