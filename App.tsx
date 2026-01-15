@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   LayoutDashboard, 
   Clock, 
@@ -13,10 +13,14 @@ import {
   Activity, 
   Loader2, 
   Palette, 
-  Check
+  Check,
+  TrendingUp,
+  Target,
+  Zap,
+  BarChart4
 } from 'lucide-react';
 import { DayLog, AppState, UserProfile, ThemeType, Task, TaskPriority } from './types';
-import { getTodayStr } from './utils/time';
+import { getTodayStr, diffMinutes } from './utils/time';
 import AttendancePanel from './components/AttendancePanel';
 import TaskPanel from './components/TaskPanel';
 import AnalysisPanel from './components/AnalysisPanel';
@@ -49,6 +53,73 @@ const INITIAL_STATE: AppState = {
     users: [DEFAULT_ADMIN]
   }
 };
+
+const DashboardSummary: React.FC<{ tasks: Task[], totalMins: number }> = ({ tasks, totalMins }) => {
+  const stats = useMemo(() => {
+    const completed = tasks.filter(t => t.status === 'completed').length;
+    const pending = tasks.filter(t => t.status === 'pending').length;
+    const highPriority = tasks.filter(t => t.priority === 'high' && t.status === 'pending').length;
+    
+    return {
+      total: tasks.length,
+      completed,
+      pending,
+      highPriority,
+      hours: (totalMins / 60).toFixed(1)
+    };
+  }, [tasks, totalMins]);
+
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full animate-in fade-in slide-in-from-top-4 duration-700">
+      <div className="glass-panel p-6 rounded-[2rem] border-pulse transition-all hover:translate-y-[-4px]">
+        <div className="flex justify-between items-start mb-4">
+          <div className="p-2 bg-indigo-500/20 text-indigo-400 rounded-xl">
+            <Target size={20} />
+          </div>
+          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Today</span>
+        </div>
+        <p className="text-3xl font-black text-white">{stats.total}</p>
+        <p className="text-[10px] font-bold text-slate-500 uppercase mt-1 tracking-widest">Total Modules</p>
+      </div>
+
+      <div className="glass-panel p-6 rounded-[2rem] transition-all hover:translate-y-[-4px]">
+        <div className="flex justify-between items-start mb-4">
+          <div className="p-2 bg-amber-500/20 text-amber-400 rounded-xl">
+            <Activity size={20} />
+          </div>
+          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Pending</span>
+        </div>
+        <p className="text-3xl font-black text-white">{stats.pending}</p>
+        <p className="text-[10px] font-bold text-slate-500 uppercase mt-1 tracking-widest">Active Objectives</p>
+      </div>
+
+      <div className="glass-panel p-6 rounded-[2rem] transition-all hover:translate-y-[-4px]">
+        <div className="flex justify-between items-start mb-4">
+          <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl">
+            <CheckCircle2 size={20} className="text-emerald-500" />
+          </div>
+          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Done</span>
+        </div>
+        <p className="text-3xl font-black text-white">{stats.completed}</p>
+        <p className="text-[10px] font-bold text-slate-500 uppercase mt-1 tracking-widest">Verified Output</p>
+      </div>
+
+      <div className="glass-panel p-6 rounded-[2rem] transition-all hover:translate-y-[-4px]">
+        <div className="flex justify-between items-start mb-4">
+          <div className="p-2 bg-indigo-500/20 text-indigo-400 rounded-xl">
+            <Clock size={20} />
+          </div>
+          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Log</span>
+        </div>
+        <p className="text-3xl font-black text-white">{stats.hours}<span className="text-sm font-bold ml-1 opacity-50">hrs</span></p>
+        <p className="text-[10px] font-bold text-slate-500 uppercase mt-1 tracking-widest">Production Time</p>
+      </div>
+    </div>
+  );
+};
+
+// Simplified icon component helper for Lucide
+const CheckCircle2 = ({ size, className }: { size: number, className: string }) => <Check size={size} className={className} />;
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(() => {
@@ -153,14 +224,14 @@ const App: React.FC = () => {
   }, [state.userLogs, state.config, state.isAuthenticated, isHydrated, state.currentUser, isAdmin]);
 
   useEffect(() => {
-    const timeoutId = setTimeout(saveToCloud, 3000); // Faster sync trigger
+    const timeoutId = setTimeout(saveToCloud, 3000); 
     return () => clearTimeout(timeoutId);
   }, [state.userLogs, state.config, saveToCloud]);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    // Refresh background data every 30 seconds for better real-time feel
-    const cloudTimer = setInterval(() => loadFromCloud(true), 30000);
+    // Faster polling (15s) for "instant" appearance of admin-assigned tasks
+    const cloudTimer = setInterval(() => loadFromCloud(true), 15000);
     return () => {
       clearInterval(timer);
       clearInterval(cloudTimer);
@@ -282,93 +353,114 @@ const App: React.FC = () => {
     { id: 'light', label: 'Light', color: 'bg-slate-100 border border-slate-300' }
   ];
 
+  const totalActualMins = todayLog.tasks.reduce((sum, t) => {
+    const elapsed = t.status === 'pending' && t.timerStartedAt 
+      ? Math.floor((Date.now() - t.timerStartedAt) / 60000) 
+      : 0;
+    return sum + t.actualDuration + elapsed;
+  }, 0);
+
   return (
     <div className={`flex flex-col md:flex-row h-screen overflow-hidden font-sans transition-colors duration-500 app-bg`}>
-      {/* Desktop Sidebar */}
-      <aside className={`hidden md:flex flex-col w-64 border-r p-6 no-print transition-colors app-card`}>
-        <div className="flex items-center gap-3 mb-10 px-2">
-          <div className="w-10 h-10 bg-theme-primary rounded-xl flex items-center justify-center shadow-lg accent-shadow">
-            <Clock className="text-white w-6 h-6" />
+      {/* Sidebar with Glass UI */}
+      <aside className={`hidden md:flex flex-col w-72 glass-panel m-4 rounded-[2.5rem] p-8 no-print transition-all border-opacity-20`}>
+        <div className="flex items-center gap-4 mb-12 px-2">
+          <div className="w-12 h-12 bg-theme-primary rounded-2xl flex items-center justify-center shadow-2xl accent-shadow">
+            <Clock className="text-white w-7 h-7" />
           </div>
-          <h1 className="text-sm font-black leading-tight uppercase tracking-tight text-current">
-            Workforce <span className="text-theme-primary">OS</span>
-          </h1>
+          <div>
+            <h1 className="text-sm font-black uppercase tracking-tighter text-glow">
+              Workforce <span className="text-theme-primary">OS</span>
+            </h1>
+            <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mt-0.5">Quantum Efficiency</p>
+          </div>
         </div>
-        <nav className="flex-1 space-y-2">
+        
+        <nav className="flex-1 space-y-3">
           {navItems.map(item => (
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id as any)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+              className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl transition-all duration-300 ${
                 activeTab === item.id 
-                  ? 'bg-theme-primary/10 text-theme-primary border border-theme-primary/20 font-bold' 
-                  : 'text-slate-500 hover:text-current hover:bg-white/5'
+                  ? 'bg-theme-primary text-white shadow-xl accent-shadow font-black' 
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
               }`}
             >
-              <item.icon size={20} />
-              <span>{item.label === 'Dash' ? 'Dashboard' : item.label}</span>
+              <item.icon size={22} strokeWidth={activeTab === item.id ? 2.5 : 2} />
+              <span className="text-xs uppercase tracking-widest">{item.label === 'Dash' ? 'Dashboard' : item.label}</span>
             </button>
           ))}
         </nav>
-        <div className="mt-auto pt-6 border-t border-slate-800/20 space-y-4">
-          <div className="flex items-center gap-3 px-2">
-            <div className="w-8 h-8 rounded-full bg-theme-primary flex items-center justify-center text-white text-[10px] font-bold">
+
+        <div className="mt-auto pt-8 space-y-6">
+          <div className="flex items-center gap-4 px-4 py-4 rounded-3xl bg-slate-950/40 border border-slate-800/30">
+            <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 flex items-center justify-center text-indigo-400 text-xs font-black">
               {state.currentUser?.name.substring(0,2).toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold truncate">{state.currentUser?.name}</p>
-              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">{state.currentUser?.role}</p>
+              <p className="text-xs font-black truncate uppercase tracking-tighter">{state.currentUser?.name}</p>
+              <p className="text-[9px] text-slate-500 font-black uppercase tracking-widest">{state.currentUser?.role} Mode</p>
             </div>
           </div>
-          <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-2 rounded-xl text-slate-400 hover:text-red-400 hover:bg-red-500/5 transition-all">
-            <LogOut size={18} />
-            <span className="text-sm font-medium">Sign Out</span>
+          <button onClick={handleLogout} className="w-full flex items-center gap-3 px-6 py-4 rounded-2xl text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-all group">
+            <LogOut size={20} className="group-hover:-translate-x-1 transition-transform" />
+            <span className="text-xs font-black uppercase tracking-widest">Disconnect</span>
           </button>
         </div>
       </aside>
 
-      {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto pb-24 md:pb-6">
-        <header className="sticky top-0 z-30 flex items-center justify-between px-6 py-4 border-b border-slate-800/20 backdrop-blur-md bg-transparent no-print">
-          <div className="flex items-center gap-3">
-             <div className="md:hidden w-8 h-8 bg-theme-primary rounded-lg flex items-center justify-center shadow-lg">
-                <Clock className="text-white w-5 h-5" />
+      {/* Main Container */}
+      <main className="flex-1 overflow-y-auto px-4 py-4 md:px-8 md:py-6 scroll-smooth">
+        <header className="sticky top-0 z-40 flex items-center justify-between px-6 py-4 mb-8 glass-panel rounded-3xl no-print">
+          <div className="flex items-center gap-4">
+             <div className="md:hidden w-10 h-10 bg-theme-primary rounded-xl flex items-center justify-center shadow-lg">
+                <Clock className="text-white w-6 h-6" />
              </div>
-             <h2 className="text-lg font-black uppercase tracking-widest">{activeTab}</h2>
+             <div className="flex flex-col">
+                <h2 className="text-lg font-black uppercase tracking-[0.3em] text-glow">{activeTab}</h2>
+                <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Node ID: {state.currentUser?.id}</p>
+             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-800/20 bg-black/10`}>
+
+          <div className="flex items-center gap-4">
+            <div className="hidden lg:flex flex-col items-end mr-4">
+               <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Network</p>
+               <p className="text-[11px] font-black text-white tabular-nums">{currentTime.toLocaleTimeString([], { hour12: false })}</p>
+            </div>
+            
+            <div className="flex items-center gap-2 px-4 py-2 rounded-2xl border border-slate-800/30 bg-black/20">
               {syncStatus === 'hydrating' || syncStatus === 'syncing' ? (
-                <Loader2 size={12} className="text-theme-primary animate-spin" />
+                <RefreshCw size={14} className="text-theme-primary animate-spin" />
               ) : syncStatus === 'error' ? (
-                <CloudOff size={12} className="text-red-400" />
+                <CloudOff size={14} className="text-red-400" />
               ) : (
-                <Cloud size={12} className="text-emerald-400" />
+                <Cloud size={14} className="text-emerald-400" />
               )}
-              <span className={`text-[9px] font-black uppercase tracking-widest ${syncStatus === 'error' ? 'text-red-400' : 'text-slate-500'} hidden sm:inline`}>
+              <span className={`text-[10px] font-black uppercase tracking-widest ${syncStatus === 'error' ? 'text-red-400' : 'text-slate-500'} hidden sm:inline`}>
                 {syncStatus}
               </span>
             </div>
             
             <button 
               onClick={() => setShowThemeGallery(!showThemeGallery)}
-              className="p-2 rounded-full border border-slate-800/20 bg-black/10 hover:bg-black/20 transition-all text-slate-400"
+              className="p-2.5 rounded-2xl border border-slate-800/30 bg-black/20 hover:bg-theme-primary/10 hover:border-theme-primary/50 transition-all text-slate-400"
             >
-              <Palette size={18} />
+              <Palette size={20} />
             </button>
             
             {showThemeGallery && (
-              <div className="absolute right-0 mt-3 top-full w-64 p-4 rounded-3xl app-card border shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-200">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-4 px-1">Visual Theme</p>
-                <div className="grid grid-cols-2 gap-2">
+              <div className="absolute right-0 mt-4 top-full w-72 p-6 rounded-[2.5rem] glass-panel border shadow-[0_20px_50px_rgba(0,0,0,0.5)] z-50 animate-in fade-in zoom-in-95 duration-300">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-6 px-1 border-b border-slate-800 pb-2">Interface Subsystem</p>
+                <div className="grid grid-cols-2 gap-3">
                   {themes.map(t => (
                     <button 
                       key={t.id}
                       onClick={() => { setState(p => ({...p, theme: t.id})); setShowThemeGallery(false); }}
-                      className={`flex flex-col items-center gap-2 p-3 rounded-2xl transition-all border ${state.theme === t.id ? 'border-theme-primary bg-theme-primary/10' : 'border-slate-800/10 bg-black/10'}`}
+                      className={`flex flex-col items-center gap-3 p-4 rounded-3xl transition-all border ${state.theme === t.id ? 'border-theme-primary bg-theme-primary/10 shadow-lg' : 'border-slate-800/20 bg-slate-950/40 hover:border-slate-700'}`}
                     >
-                      <div className={`w-8 h-8 rounded-lg shadow-inner ${t.color}`} />
-                      <span className="text-[8px] font-black uppercase tracking-tighter opacity-70">
+                      <div className={`w-10 h-10 rounded-xl shadow-inner ${t.color}`} />
+                      <span className="text-[9px] font-black uppercase tracking-tighter opacity-80">
                         {t.label}
                       </span>
                     </button>
@@ -379,42 +471,58 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
+        <div className="space-y-8 pb-12">
           {!isHydrated && state.isAuthenticated ? (
-            <div className="flex flex-col items-center justify-center py-24 animate-pulse">
-              <RefreshCw size={48} className="text-theme-primary animate-spin mb-4" />
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">Syncing Cloud Node...</p>
+            <div className="flex flex-col items-center justify-center py-40 animate-pulse">
+              <RefreshCw size={60} className="text-theme-primary animate-spin mb-6" />
+              <p className="text-xs font-black uppercase tracking-[0.4em] text-slate-400">Synchronizing Quantum Cloud...</p>
             </div>
           ) : (
             <>
               {activeTab === 'overview' && (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  <AttendancePanel log={todayLog} config={state.config} onUpdate={updateTodayLog} logs={currentUserLogs} state={state} />
-                  <AnalysisPanel log={todayLog} config={state.config} currentTime={currentTime} />
-                  <InsightsPanel log={todayLog} logs={currentUserLogs} config={state.config} currentTime={currentTime} />
+                <div className="space-y-8 animate-in fade-in duration-1000">
+                  {/* Row 1: Summary Stats */}
+                  <DashboardSummary tasks={todayLog.tasks} totalMins={totalActualMins} />
+
+                  {/* Row 2: Charts and Productivity Analysis */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    <div className="lg:col-span-8">
+                       <AnalysisPanel log={todayLog} config={state.config} currentTime={currentTime} />
+                    </div>
+                    <div className="lg:col-span-4">
+                       <InsightsPanel log={todayLog} logs={currentUserLogs} config={state.config} currentTime={currentTime} />
+                    </div>
+                  </div>
+
+                  {/* Row 3: Activity Tracking & Shift Control */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <TaskPanel log={todayLog} onUpdate={updateTodayLog} historicalLogs={currentUserLogs} userRole={state.currentUser?.role} currentUserId={state.currentUser?.id} />
+                    <AttendancePanel log={todayLog} config={state.config} onUpdate={updateTodayLog} logs={currentUserLogs} state={state} />
+                  </div>
                 </div>
               )}
-              {activeTab === 'attendance' && <AttendancePanel log={todayLog} config={state.config} onUpdate={updateTodayLog} logs={currentUserLogs} state={state} isFullWidth />}
-              {activeTab === 'tasks' && <TaskPanel log={todayLog} onUpdate={updateTodayLog} historicalLogs={currentUserLogs} isFullWidth userRole={state.currentUser?.role} currentUserId={state.currentUser?.id} />}
-              {activeTab === 'reports' && <ReportsPanel state={state} isFullWidth />}
-              {activeTab === 'activity' && isAdmin && <UserActivityPanel state={state} />}
-              {activeTab === 'admin' && isAdmin && <AdminPanel state={state} updateConfig={updateConfig} restoreFullState={restoreFullState} triggerManualSync={triggerManualSync} onAssignTask={assignTask} />}
+              
+              {activeTab === 'attendance' && <div className="animate-in fade-in duration-700"><AttendancePanel log={todayLog} config={state.config} onUpdate={updateTodayLog} logs={currentUserLogs} state={state} isFullWidth /></div>}
+              {activeTab === 'tasks' && <div className="animate-in fade-in duration-700"><TaskPanel log={todayLog} onUpdate={updateTodayLog} historicalLogs={currentUserLogs} isFullWidth userRole={state.currentUser?.role} currentUserId={state.currentUser?.id} /></div>}
+              {activeTab === 'reports' && <div className="animate-in fade-in duration-700"><ReportsPanel state={state} isFullWidth /></div>}
+              {activeTab === 'activity' && isAdmin && <div className="animate-in fade-in duration-700"><UserActivityPanel state={state} /></div>}
+              {activeTab === 'admin' && isAdmin && <div className="animate-in fade-in duration-700"><AdminPanel state={state} updateConfig={updateConfig} restoreFullState={restoreFullState} triggerManualSync={triggerManualSync} onAssignTask={assignTask} /></div>}
             </>
           )}
         </div>
       </main>
 
-      {/* Mobile Bottom Navigation Bar */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-950/90 backdrop-blur-xl border-t border-slate-800/50 flex items-center justify-around py-4 px-2 z-50 no-print shadow-[0_-10px_20px_rgba(0,0,0,0.5)]">
+      {/* Mobile Glass Bar */}
+      <nav className="md:hidden fixed bottom-6 left-6 right-6 h-20 glass-panel rounded-[2.5rem] flex items-center justify-around px-8 z-50 no-print shadow-[0_15px_50px_rgba(0,0,0,0.6)] border-opacity-30">
         {navItems.map(item => (
           <button
             key={item.id}
             onClick={() => setActiveTab(item.id as any)}
-            className={`flex flex-col items-center gap-1 transition-all ${
-              activeTab === item.id ? 'text-theme-primary' : 'text-slate-500'
+            className={`flex flex-col items-center gap-1.5 transition-all duration-300 ${
+              activeTab === item.id ? 'text-theme-primary scale-110' : 'text-slate-500 hover:text-slate-300'
             }`}
           >
-            <item.icon size={20} strokeWidth={activeTab === item.id ? 2.5 : 2} />
+            <item.icon size={22} strokeWidth={activeTab === item.id ? 3 : 2} />
             <span className="text-[8px] font-black uppercase tracking-widest">{item.label}</span>
           </button>
         ))}

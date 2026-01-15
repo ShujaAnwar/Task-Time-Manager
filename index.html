@@ -4,62 +4,66 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Task & Time Manager | Productivity Dashboard</title>
+    <title>Workforce OS | Futuristic Productivity</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
         :root {
             --primary: #6366f1;
-            --primary-glow: rgba(99, 102, 241, 0.3);
+            --primary-glow: rgba(99, 102, 241, 0.4);
             --bg-main: #020617;
-            --bg-card: rgba(15, 23, 42, 0.4);
-            --border: rgba(30, 41, 59, 0.5);
+            --bg-card: rgba(15, 23, 42, 0.6);
+            --border: rgba(30, 41, 59, 0.7);
             --text-accent: #818cf8;
+            --glass-bg: rgba(15, 23, 42, 0.4);
+            --glass-border: rgba(255, 255, 255, 0.05);
         }
 
         .theme-cyberpunk {
             --primary: #f0abfc;
-            --primary-glow: rgba(240, 171, 252, 0.3);
+            --primary-glow: rgba(240, 171, 252, 0.4);
             --bg-main: #0a0a0a;
-            --bg-card: rgba(23, 23, 23, 0.6);
-            --border: rgba(162, 28, 175, 0.3);
+            --bg-card: rgba(23, 23, 23, 0.8);
+            --border: rgba(162, 28, 175, 0.4);
             --text-accent: #e879f9;
         }
 
         .theme-emerald {
             --primary: #10b981;
-            --primary-glow: rgba(16, 185, 129, 0.3);
+            --primary-glow: rgba(16, 185, 129, 0.4);
             --bg-main: #022c22;
-            --bg-card: rgba(6, 78, 59, 0.3);
-            --border: rgba(16, 185, 129, 0.2);
+            --bg-card: rgba(6, 78, 59, 0.4);
+            --border: rgba(16, 185, 129, 0.3);
             --text-accent: #34d399;
         }
 
         .theme-crimson {
             --primary: #e11d48;
-            --primary-glow: rgba(225, 29, 72, 0.3);
+            --primary-glow: rgba(225, 29, 72, 0.4);
             --bg-main: #0f172a;
-            --bg-card: rgba(30, 41, 59, 0.5);
-            --border: rgba(225, 29, 72, 0.2);
+            --bg-card: rgba(30, 41, 59, 0.6);
+            --border: rgba(225, 29, 72, 0.3);
             --text-accent: #fb7185;
         }
 
         .theme-nordic {
             --primary: #38bdf8;
-            --primary-glow: rgba(56, 189, 248, 0.3);
+            --primary-glow: rgba(56, 189, 248, 0.4);
             --bg-main: #0f172a;
-            --bg-card: rgba(30, 41, 59, 0.4);
-            --border: rgba(56, 189, 248, 0.1);
+            --bg-card: rgba(30, 41, 59, 0.5);
+            --border: rgba(56, 189, 248, 0.2);
             --text-accent: #7dd3fc;
         }
 
         .theme-light {
             --primary: #4f46e5;
-            --primary-glow: rgba(79, 70, 229, 0.1);
+            --primary-glow: rgba(79, 70, 229, 0.15);
             --bg-main: #f8fafc;
-            --bg-card: #ffffff;
+            --bg-card: rgba(255, 255, 255, 0.9);
             --border: #e2e8f0;
             --text-accent: #4338ca;
+            --glass-bg: rgba(255, 255, 255, 0.5);
+            --glass-border: rgba(0, 0, 0, 0.05);
         }
 
         body {
@@ -67,7 +71,11 @@
             scroll-behavior: smooth;
             background-color: var(--bg-main);
             color: #f1f5f9;
-            transition: background-color 0.5s ease;
+            transition: background-color 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .font-mono {
+            font-family: 'JetBrains Mono', monospace;
         }
 
         .theme-light body { color: #0f172a; }
@@ -78,29 +86,58 @@
             body { background: white !important; color: black !important; }
         }
         
-        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+        ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.2); border-radius: 20px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.4); }
 
         .app-bg {
             background-color: var(--bg-main);
+            background-image: radial-gradient(circle at top right, var(--primary-glow), transparent 40%);
         }
-        .app-card {
-            background-color: var(--bg-card);
-            border-color: var(--border);
+
+        .glass-panel {
+            background: var(--bg-card);
+            backdrop-filter: blur(16px) saturate(180%);
+            -webkit-backdrop-filter: blur(16px) saturate(180%);
+            border: 1px solid var(--border);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
         }
-        .text-theme-primary {
-            color: var(--primary);
+
+        .glass-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--glass-border);
         }
-        .bg-theme-primary {
-            background-color: var(--primary);
+
+        .text-glow {
+            text-shadow: 0 0 10px var(--primary-glow);
         }
-        .border-theme-primary {
-            border-color: var(--primary);
+
+        .stat-card-gradient {
+            background: linear-gradient(135deg, var(--bg-card) 0%, rgba(15, 23, 42, 0.2) 100%);
         }
+
         .accent-shadow {
-            box-shadow: 0 10px 15px -3px var(--primary-glow);
+            box-shadow: 0 0 30px -5px var(--primary-glow);
+        }
+
+        @keyframes pulse-border {
+            0%, 100% { border-color: var(--border); }
+            50% { border-color: var(--primary); }
+        }
+
+        .border-pulse {
+            animation: pulse-border 3s infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+        }
+
+        .float-anim {
+            animation: float 6s ease-in-out infinite;
         }
     </style>
 <script type="importmap">
@@ -119,7 +156,7 @@
 }
 </script>
 </head>
-<body class="min-h-screen">
+<body class="min-h-screen selection:bg-indigo-500/30">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
 </body>
