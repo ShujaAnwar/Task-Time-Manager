@@ -175,7 +175,6 @@ const App: React.FC = () => {
                   return;
                 }
 
-                // Merge strategy: preserve active timers from local state
                 const mergedTasks = cloudDay.tasks.map(cloudTask => {
                   const localTask = localDay.tasks.find(t => t.id === cloudTask.id);
                   if (localTask && localTask.timerStartedAt && cloudTask.status === 'pending') {
@@ -261,11 +260,36 @@ const App: React.FC = () => {
     document.body.classList.add(`theme-${state.theme}`);
   }, [state]);
 
-  const handleLogin = (userId: string, password: string, remember: boolean) => {
-    const user = state.config.users.find(u => 
+  const handleLogin = async (userId: string, password: string, remember: boolean) => {
+    const findUser = (userList: UserProfile[]) => userList.find(u => 
       (u.id.toUpperCase() === userId.toUpperCase() || u.name.toUpperCase() === userId.toUpperCase()) && 
       u.password === password
     );
+
+    let user = findUser(state.config.users);
+
+    // If not found in local cache, try dynamic cloud verification
+    if (!user) {
+      try {
+        const response = await fetch(`${BUILTIN_SHEET_URL}?action=GET_CONFIG&t=${Date.now()}`);
+        if (response.ok) {
+          const cloudData = await response.json();
+          if (cloudData.config && cloudData.config.users) {
+            user = findUser(cloudData.config.users);
+            if (user) {
+              // Sync local state with fresh cloud config if user found
+              setState(prev => ({
+                ...prev,
+                config: { ...prev.config, users: cloudData.config.users }
+              }));
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Cloud lookup failed", err);
+      }
+    }
+
     if (user) {
       if (user.status === 'inactive') {
         alert("Authentication Error: Account is currently inactive. Contact Admin.");
@@ -308,7 +332,6 @@ const App: React.FC = () => {
   const assignTask = async (userIds: string[], date: string, task: Task) => {
     if (!isAdmin || !state.currentUser) return;
     
-    // Update local state first for responsiveness
     setState(prev => {
       const userLogs = { ...prev.userLogs };
       userIds.forEach(uId => {
@@ -319,7 +342,6 @@ const App: React.FC = () => {
       return { ...prev, userLogs };
     });
 
-    // Trigger immediate cloud push for assignments
     setTimeout(() => saveToCloud(true), 100);
   };
 
@@ -343,7 +365,6 @@ const App: React.FC = () => {
       });
       setSyncStatus('connected');
       if (specialAction === 'PROVISION_USER') {
-        // Reload to get potential new config/user-specific cloud state
         loadFromCloud();
       }
     } catch (e) {
