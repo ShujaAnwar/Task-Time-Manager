@@ -43,6 +43,7 @@ export interface UserProfile {
   name: string;
   password: string;
   role: 'admin' | 'user';
+  status: 'active' | 'inactive';
   createdAt: number;
 }
 

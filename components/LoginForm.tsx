@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Lock, User, Clock, ChevronRight, Info, Check } from 'lucide-react';
+import { Lock, User, Clock, ChevronRight, Check } from 'lucide-react';
 
 interface Props {
   onLogin: (userId: string, password: string, remember: boolean) => boolean;
@@ -111,16 +111,6 @@ const LoginForm: React.FC<Props> = ({ onLogin, defaultUserId = '' }) => {
               <span>AUTHORIZE ACCESS</span>
               <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" />
             </button>
-
-            <div className="p-4 bg-indigo-500/5 border border-indigo-500/10 rounded-2xl flex items-start gap-3">
-              <Info size={16} className="text-indigo-400 shrink-0 mt-0.5" />
-              <div className="space-y-1">
-                <p className="text-[9px] text-indigo-300 font-black uppercase tracking-widest">Master Identity</p>
-                <p className="text-[10px] text-indigo-300/60 font-medium">
-                  Default ID: <span className="text-indigo-400 font-bold">ADMIN</span> / Password: <span className="text-indigo-400 font-bold">admin</span>
-                </p>
-              </div>
-            </div>
           </div>
         </form>
 

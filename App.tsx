@@ -35,6 +35,7 @@ const DEFAULT_ADMIN: UserProfile = {
   name: "System Administrator",
   password: "admin",
   role: 'admin',
+  status: 'active',
   createdAt: Date.now()
 };
 
@@ -124,7 +125,7 @@ const App: React.FC = () => {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        const shouldAuth = parsed.rememberMe && parsed.currentUser;
+        const shouldAuth = parsed.rememberMe && parsed.currentUser && parsed.currentUser.status !== 'inactive';
         return { 
           ...parsed, 
           isAuthenticated: shouldAuth, 
@@ -261,8 +262,15 @@ const App: React.FC = () => {
   }, [state]);
 
   const handleLogin = (userId: string, password: string, remember: boolean) => {
-    const user = state.config.users.find(u => (u.id.toUpperCase() === userId.toUpperCase() || u.name.toUpperCase() === userId.toUpperCase()) && u.password === password);
+    const user = state.config.users.find(u => 
+      (u.id.toUpperCase() === userId.toUpperCase() || u.name.toUpperCase() === userId.toUpperCase()) && 
+      u.password === password
+    );
     if (user) {
+      if (user.status === 'inactive') {
+        alert("Authentication Error: Account is currently inactive. Contact Admin.");
+        return false;
+      }
       setIsHydrated(false);
       setState(prev => ({ 
         ...prev, 
@@ -334,7 +342,10 @@ const App: React.FC = () => {
         body: JSON.stringify(payload)
       });
       setSyncStatus('connected');
-      if (specialAction === 'PROVISION_USER') loadFromCloud();
+      if (specialAction === 'PROVISION_USER') {
+        // Reload to get potential new config/user-specific cloud state
+        loadFromCloud();
+      }
     } catch (e) {
       setSyncStatus('error');
     }

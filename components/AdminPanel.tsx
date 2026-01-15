@@ -25,7 +25,9 @@ import {
   Filter,
   CheckCircle2,
   AlertCircle,
-  Clock
+  Clock,
+  User,
+  Key
 } from 'lucide-react';
 import { AppState, UserProfile, Task, TaskPriority, DayLog } from '../types';
 import { getTodayStr, formatMinutesToDisplay } from '../utils/time';
@@ -70,7 +72,8 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, triggerManualSync, o
     newUserId: '',
     newUserName: '',
     newPassword: '',
-    role: 'user' as 'admin' | 'user'
+    role: 'user' as 'admin' | 'user',
+    status: 'active' as 'active' | 'inactive'
   });
 
   const [generalData, setGeneralData] = useState({
@@ -143,7 +146,10 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, triggerManualSync, o
 
   const handleProvision = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!provisionData.newUserId || !provisionData.newPassword) return;
+    if (!provisionData.newUserId || !provisionData.newPassword) {
+      alert("Validation Error: User ID and Password are required.");
+      return;
+    }
     
     setIsProvisioning(true);
     const newUser: UserProfile = {
@@ -151,8 +157,16 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, triggerManualSync, o
       name: provisionData.newUserName || provisionData.newUserId,
       password: provisionData.newPassword,
       role: provisionData.role,
+      status: provisionData.status,
       createdAt: Date.now()
     };
+
+    // Check for collision
+    if (state.config.users.some(u => u.id === newUser.id)) {
+      alert("Conflict Error: User ID already exists in the local directory.");
+      setIsProvisioning(false);
+      return;
+    }
 
     const updatedUsers = [...state.config.users, newUser];
     
@@ -167,6 +181,7 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, triggerManualSync, o
         setProvisionSuccess(true);
       } catch (err) {
         console.error("Cloud provisioning failed:", err);
+        alert("Sync Error: Failed to provision user to cloud database.");
       }
     } else {
       updateConfig({ users: updatedUsers });
@@ -174,7 +189,7 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, triggerManualSync, o
     }
 
     setIsProvisioning(false);
-    setProvisionData({ newUserId: '', newUserName: '', newPassword: '', role: 'user' });
+    setProvisionData({ newUserId: '', newUserName: '', newPassword: '', role: 'user', status: 'active' });
     setTimeout(() => setProvisionSuccess(false), 5000);
   };
 
@@ -231,6 +246,7 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, triggerManualSync, o
 
   return (
     <div className="space-y-8 pb-12">
+      {/* Task Distribution Section */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
         <div className="bg-slate-900/40 rounded-[2.5rem] p-8 border border-slate-800 backdrop-blur-md shadow-2xl xl:col-span-2">
            <div className="flex justify-between items-center mb-8">
@@ -257,7 +273,7 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, triggerManualSync, o
               <div className="space-y-6">
                 <div className="space-y-2">
                   <label className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Target Nodes ({taskData.selectedUserIds.length} Selected)</label>
-                  <div className="max-h-40 overflow-y-auto bg-slate-950 border border-slate-800 rounded-2xl p-3 grid grid-cols-2 gap-2">
+                  <div className="max-h-40 overflow-y-auto bg-slate-950 border border-slate-800 rounded-2xl p-3 grid grid-cols-2 gap-2 custom-scrollbar">
                     {state.config.users.map(u => (
                       <label key={u.id} className={`flex items-center gap-2 p-2 rounded-xl border transition-all cursor-pointer ${taskData.selectedUserIds.includes(u.id) ? 'bg-indigo-600/20 border-indigo-500' : 'bg-slate-900/50 border-slate-800 hover:border-slate-700'}`}>
                         <input type="checkbox" checked={taskData.selectedUserIds.includes(u.id)} onChange={() => {
@@ -298,6 +314,111 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, triggerManualSync, o
            </form>
         </div>
 
+        {/* User Provisioning Section */}
+        <div className="bg-slate-900/40 rounded-[2.5rem] p-8 border border-slate-800 backdrop-blur-md shadow-2xl">
+           <div className="flex justify-between items-center mb-8">
+              <div>
+                <h3 className="text-xl font-black text-white uppercase tracking-tighter flex items-center gap-3">
+                  <UserPlus size={24} className="text-emerald-400" /> User Provisioning
+                </h3>
+                <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black mt-1">Create and manage workforce identities</p>
+              </div>
+           </div>
+
+           <form onSubmit={handleProvision} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] text-slate-500 uppercase tracking-widest font-black">User Full Name</label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
+                    <input required value={provisionData.newUserName} onChange={e => setProvisionData({...provisionData, newUserName: e.target.value})} placeholder="e.g. John Doe" className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-10 pr-4 py-3 text-sm text-white outline-none focus:border-emerald-500" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] text-slate-500 uppercase tracking-widest font-black">User ID (Unique Key)</label>
+                  <div className="relative">
+                    <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
+                    <input required value={provisionData.newUserId} onChange={e => setProvisionData({...provisionData, newUserId: e.target.value})} placeholder="e.g. jdoe_01" className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-10 pr-4 py-3 text-sm text-white outline-none focus:border-emerald-500 uppercase" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Identity Password</label>
+                  <div className="relative">
+                    <Key className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
+                    <input required type="password" value={provisionData.newPassword} onChange={e => setProvisionData({...provisionData, newPassword: e.target.value})} placeholder="••••••••" className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-10 pr-4 py-3 text-sm text-white outline-none focus:border-emerald-500" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-2">
+                    <label className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Role</label>
+                    <select value={provisionData.role} onChange={e => setProvisionData({...provisionData, role: e.target.value as 'admin'|'user'})} className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-white outline-none focus:border-emerald-500 appearance-none">
+                      <option value="user">USER</option>
+                      <option value="admin">ADMIN</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Status</label>
+                    <select value={provisionData.status} onChange={e => setProvisionData({...provisionData, status: e.target.value as 'active'|'inactive'})} className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-white outline-none focus:border-emerald-500 appearance-none">
+                      <option value="active">ACTIVE</option>
+                      <option value="inactive">INACTIVE</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <button type="submit" disabled={isProvisioning} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-4 rounded-2xl uppercase tracking-widest text-xs transition-all shadow-xl active:scale-[0.98] flex items-center justify-center gap-3">
+                {isProvisioning ? <RefreshCw size={16} className="animate-spin" /> : <UserPlus size={16} />} 
+                {isProvisioning ? 'Synchronizing with Neural Database...' : 'Finalize Identity Provisioning'}
+              </button>
+
+              {provisionSuccess && (
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
+                  <CheckCircle2 size={16} className="text-emerald-400" />
+                  <p className="text-[10px] text-emerald-400 font-black uppercase tracking-widest">Success: New node identity deployed to workforce OS.</p>
+                </div>
+              )}
+           </form>
+        </div>
+
+        {/* Global Directory List */}
+        <div className="bg-slate-900/40 rounded-[2.5rem] p-8 border border-slate-800 backdrop-blur-md shadow-2xl">
+           <div className="flex justify-between items-center mb-8">
+              <div>
+                <h3 className="text-xl font-black text-white uppercase tracking-tighter flex items-center gap-3">
+                  <Database size={24} className="text-indigo-400" /> Global Directory
+                </h3>
+              </div>
+           </div>
+
+           <div className="max-h-80 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+              {state.config.users.map(u => (
+                <div key={u.id} className="flex items-center justify-between p-4 bg-slate-950/40 border border-slate-800 rounded-2xl group">
+                  <div className="flex items-center gap-4">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs ${u.role === 'admin' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+                      {u.name.substring(0,2).toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="text-xs font-black text-white uppercase tracking-tight">{u.name}</p>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[9px] text-slate-600 font-black uppercase">{u.id}</span>
+                        <span className={`text-[8px] font-black uppercase tracking-tighter px-1.5 py-0.5 rounded ${u.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                          {u.status}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => removeUser(u.id)} className="p-2 text-slate-500 hover:text-rose-400"><Trash2 size={14} /></button>
+                  </div>
+                </div>
+              ))}
+           </div>
+        </div>
+
+        {/* Operational Board List - Full Width */}
         <div className="bg-slate-900/40 rounded-[2.5rem] p-8 border border-slate-800 backdrop-blur-md shadow-2xl xl:col-span-2">
            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-8">
               <div>
