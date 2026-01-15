@@ -7,19 +7,14 @@ import {
   EyeOff, 
   UserPlus, 
   RefreshCw, 
-  Settings,
   Check,
   Edit2,
   X,
   Trash2,
-  Layers,
   Send,
-  Search,
   CheckCircle2,
-  User,
-  Key,
-  ShieldAlert,
-  UserCog
+  UserCog,
+  Layers
 } from 'lucide-react';
 import { AppState, UserProfile, Task, TaskPriority, DayLog } from '../types';
 import { getTodayStr, formatMinutesToDisplay } from '../utils/time';
@@ -42,8 +37,6 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, triggerManualSync, o
 
   const [taskFilter, setTaskFilter] = useState({
     userId: 'ALL',
-    status: 'ALL',
-    priority: 'ALL',
     searchTerm: ''
   });
 
@@ -132,23 +125,17 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, triggerManualSync, o
       return;
     }
 
-    const updatedUsers = [...state.config.users, newUser];
-    
-    if (state.config.sheetUrl && triggerManualSync) {
+    if (triggerManualSync) {
       try {
+        // triggerManualSync now handles local state update AND cloud broadcast
         await triggerManualSync('PROVISION_USER', { 
           targetUser: newUser,
-          targetUserName: newUser.name,
-          config: { ...state.config, users: updatedUsers } 
+          targetUserName: newUser.name
         });
-        updateConfig({ users: updatedUsers });
         setProvisionSuccess(true);
       } catch (err) {
         alert("Sync Error: Failed to provision user to cloud.");
       }
-    } else {
-      updateConfig({ users: updatedUsers });
-      setProvisionSuccess(true);
     }
 
     setIsProvisioning(false);
@@ -165,11 +152,10 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, triggerManualSync, o
     e.preventDefault();
     if (!editingUser) return;
 
-    const updatedUsers = state.config.users.map(u => u.id === editingUser.id ? editingUser : u);
-    updateConfig({ users: updatedUsers });
-
-    if (state.config.sheetUrl && triggerManualSync) {
+    if (triggerManualSync) {
+      const updatedUsers = state.config.users.map(u => u.id === editingUser.id ? editingUser : u);
       await triggerManualSync('SYNC_DATA', { config: { ...state.config, users: updatedUsers } });
+      updateConfig({ users: updatedUsers });
       alert("Identity Update: User credentials synchronized with cloud.");
     }
     setEditingUser(null);
@@ -180,7 +166,7 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, triggerManualSync, o
     if (confirm(`Deprovision node ${userId}? Access will be revoked immediately.`)) {
       const updatedUsers = state.config.users.filter(u => u.id !== userId);
       updateConfig({ users: updatedUsers });
-      if (state.config.sheetUrl && triggerManualSync) {
+      if (triggerManualSync) {
         triggerManualSync('SYNC_DATA', { config: { ...state.config, users: updatedUsers } });
       }
     }
@@ -211,9 +197,7 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, triggerManualSync, o
     <div className="space-y-8 pb-12">
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
         
-        {/* Provisioning & Editing Forms */}
         <div className="bg-slate-900/40 rounded-[2.5rem] p-8 border border-slate-800 backdrop-blur-md shadow-2xl space-y-8">
-           
            {!editingUser ? (
              <>
                <div className="flex justify-between items-center">
@@ -323,7 +307,6 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, triggerManualSync, o
            )}
         </div>
 
-        {/* Global Directory List */}
         <div className="bg-slate-900/40 rounded-[2.5rem] p-8 border border-slate-800 backdrop-blur-md shadow-2xl h-full flex flex-col">
            <h3 className="text-xl font-black text-white uppercase tracking-tighter flex items-center gap-3 mb-8">
              <Database size={24} className="text-indigo-400" /> Global Directory
@@ -355,7 +338,6 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, triggerManualSync, o
            </div>
         </div>
 
-        {/* Task Distribution (Consolidated for layout) */}
         <div className="bg-slate-900/40 rounded-[2.5rem] p-8 border border-slate-800 backdrop-blur-md shadow-2xl xl:col-span-2">
            <div className="flex justify-between items-center mb-8">
               <h3 className="text-xl font-black text-white uppercase tracking-tighter flex items-center gap-3">
@@ -393,6 +375,40 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, triggerManualSync, o
            </form>
         </div>
 
+        <div className="bg-slate-900/40 rounded-[2.5rem] p-8 border border-slate-800 backdrop-blur-md shadow-2xl xl:col-span-2">
+           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-8">
+              <div>
+                <h3 className="text-xl font-black text-white uppercase tracking-tighter flex items-center gap-3">
+                  <Layers size={24} className="text-indigo-400" /> Operational Task Board
+                </h3>
+              </div>
+           </div>
+
+           <div className="max-h-[500px] overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+              {globalTasks.length === 0 ? (
+                <div className="py-20 text-center text-slate-600 font-black uppercase tracking-widest opacity-30">No matching objectives found.</div>
+              ) : (
+                globalTasks.map((item, idx) => (
+                  <div key={idx} className="bg-slate-950/40 p-5 border border-slate-800 rounded-3xl flex flex-col md:flex-row md:items-center justify-between gap-4 group hover:bg-slate-800/20 transition-all">
+                     <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-3 mb-1">
+                           <h4 className="text-sm font-black text-white truncate">{item.task.title}</h4>
+                           <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${item.task.priority === 'high' ? 'text-rose-400 bg-rose-400/10 border-rose-500/20' : item.task.priority === 'medium' ? 'text-amber-400 bg-amber-400/10 border-amber-500/20' : 'text-emerald-400 bg-emerald-400/10 border-emerald-500/20'}`}>{item.task.priority}</span>
+                        </div>
+                        <div className="flex items-center gap-4 text-[9px] text-slate-500 font-bold uppercase tracking-widest">
+                           <span className="text-indigo-400">{item.uName}</span>
+                           <span>{item.date}</span>
+                           <span className={item.task.status === 'completed' ? 'text-emerald-500' : 'text-amber-500'}>{item.task.status.toUpperCase()}</span>
+                        </div>
+                     </div>
+                     <div className="text-right">
+                        <p className="text-[10px] font-black text-white tabular-nums">{formatMinutesToDisplay(item.task.actualDuration)} / {formatMinutesToDisplay(item.task.duration)}</p>
+                     </div>
+                  </div>
+                ))
+              )}
+           </div>
+        </div>
       </div>
     </div>
   );

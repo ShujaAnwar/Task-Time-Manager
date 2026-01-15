@@ -14,10 +14,8 @@ import {
   Loader2, 
   Palette, 
   Check,
-  TrendingUp,
   Target,
-  Zap,
-  BarChart4
+  Zap
 } from 'lucide-react';
 import { DayLog, AppState, UserProfile, ThemeType, Task, TaskPriority } from './types';
 import { getTodayStr, diffMinutes } from './utils/time';
@@ -59,13 +57,11 @@ const DashboardSummary: React.FC<{ tasks: Task[], totalMins: number }> = ({ task
   const stats = useMemo(() => {
     const completed = tasks.filter(t => t.status === 'completed').length;
     const pending = tasks.filter(t => t.status === 'pending').length;
-    const highPriority = tasks.filter(t => t.priority === 'high' && t.status === 'pending').length;
     
     return {
       total: tasks.length,
       completed,
       pending,
-      highPriority,
       hours: (totalMins / 60).toFixed(1)
     };
   }, [tasks, totalMins]);
@@ -226,13 +222,11 @@ const App: React.FC = () => {
         lastUpdated: new Date().toISOString()
       };
       
-      const fetchOptions: any = {
+      await fetch(state.config.sheetUrl, {
         method: 'POST',
         mode: 'no-cors',
         body: JSON.stringify(payload)
-      };
-
-      await fetch(state.config.sheetUrl, fetchOptions);
+      });
       setSyncStatus('connected');
     } catch (err) {
       setSyncStatus('error');
@@ -246,12 +240,13 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    const cloudTimer = setInterval(() => loadFromCloud(true), 15000);
+    // Increased refresh frequency for admins to capture real-time updates across the workforce
+    const cloudTimer = setInterval(() => loadFromCloud(true), isAdmin ? 10000 : 30000);
     return () => {
       clearInterval(timer);
       clearInterval(cloudTimer);
     };
-  }, [loadFromCloud]);
+  }, [loadFromCloud, isAdmin]);
 
   useEffect(() => {
     localStorage.setItem('task_time_v2', JSON.stringify(state));
@@ -268,7 +263,6 @@ const App: React.FC = () => {
 
     let user = findUser(state.config.users);
 
-    // If not found in local cache, try dynamic cloud verification
     if (!user) {
       try {
         const response = await fetch(`${BUILTIN_SHEET_URL}?action=GET_CONFIG&t=${Date.now()}`);
@@ -277,7 +271,6 @@ const App: React.FC = () => {
           if (cloudData.config && cloudData.config.users) {
             user = findUser(cloudData.config.users);
             if (user) {
-              // Sync local state with fresh cloud config if user found
               setState(prev => ({
                 ...prev,
                 config: { ...prev.config, users: cloudData.config.users }
@@ -286,7 +279,7 @@ const App: React.FC = () => {
           }
         }
       } catch (err) {
-        console.error("Cloud lookup failed", err);
+        console.error("Cloud identity lookup failed", err);
       }
     }
 
@@ -358,15 +351,31 @@ const App: React.FC = () => {
         config: state.config,
         ...extraData
       };
+      
+      // Ensure we immediately update local config for PROVISION_USER to show them in lists
+      if (specialAction === 'PROVISION_USER' && extraData?.targetUser) {
+          const newUser = extraData.targetUser;
+          setState(prev => {
+            const users = prev.config.users.some(u => u.id === newUser.id) 
+              ? prev.config.users.map(u => u.id === newUser.id ? newUser : u)
+              : [...prev.config.users, newUser];
+            const userLogs = { ...prev.userLogs };
+            if (!userLogs[newUser.id]) userLogs[newUser.id] = {};
+            return { ...prev, config: { ...prev.config, users }, userLogs };
+          });
+      }
+
       await fetch(state.config.sheetUrl, {
         method: 'POST',
         mode: 'no-cors',
         body: JSON.stringify(payload)
       });
+      
       setSyncStatus('connected');
-      if (specialAction === 'PROVISION_USER') {
-        loadFromCloud();
-      }
+      
+      // Immediate force pull to confirm cloud creation and fetch any initial server-side data
+      setTimeout(() => loadFromCloud(true), 500);
+      
     } catch (e) {
       setSyncStatus('error');
     }
@@ -394,15 +403,6 @@ const App: React.FC = () => {
       { id: 'activity', icon: Activity, label: 'Users' },
       { id: 'admin', icon: ShieldCheck, label: 'Admin' }
     ] : [])
-  ];
-
-  const themes: {id: ThemeType, label: string, color: string}[] = [
-    { id: 'executive', label: 'Indigo', color: 'bg-indigo-600' },
-    { id: 'cyberpunk', label: 'Neon', color: 'bg-fuchsia-500' },
-    { id: 'emerald', label: 'Emerald', color: 'bg-emerald-500' },
-    { id: 'crimson', label: 'Crimson', color: 'bg-rose-600' },
-    { id: 'nordic', label: 'Nordic', color: 'bg-sky-400' },
-    { id: 'light', label: 'Light', color: 'bg-slate-100 border border-slate-300' }
   ];
 
   const totalActualMins = todayLog.tasks.reduce((sum, t) => {
@@ -503,10 +503,17 @@ const App: React.FC = () => {
               <div className="absolute right-0 mt-4 top-full w-72 p-6 rounded-[2.5rem] glass-panel border shadow-[0_20px_50px_rgba(0,0,0,0.5)] z-50 animate-in fade-in zoom-in-95 duration-300">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-6 px-1 border-b border-slate-800 pb-2">Interface Subsystem</p>
                 <div className="grid grid-cols-2 gap-3">
-                  {themes.map(t => (
+                  {[
+                    { id: 'executive', label: 'Indigo', color: 'bg-indigo-600' },
+                    { id: 'cyberpunk', label: 'Neon', color: 'bg-fuchsia-500' },
+                    { id: 'emerald', label: 'Emerald', color: 'bg-emerald-500' },
+                    { id: 'crimson', label: 'Crimson', color: 'bg-rose-600' },
+                    { id: 'nordic', label: 'Nordic', color: 'bg-sky-400' },
+                    { id: 'light', label: 'Light', color: 'bg-slate-100 border border-slate-300' }
+                  ].map(t => (
                     <button 
                       key={t.id}
-                      onClick={() => { setState(p => ({...p, theme: t.id})); setShowThemeGallery(false); }}
+                      onClick={() => { setState(p => ({...p, theme: t.id as ThemeType})); setShowThemeGallery(false); }}
                       className={`flex flex-col items-center gap-3 p-4 rounded-3xl transition-all border ${state.theme === t.id ? 'border-theme-primary bg-theme-primary/10 shadow-lg' : 'border-slate-800/20 bg-slate-950/40 hover:border-slate-700'}`}
                     >
                       <div className={`w-10 h-10 rounded-xl shadow-inner ${t.color}`} />
