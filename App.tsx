@@ -13,9 +13,7 @@ import {
   Activity, 
   Loader2, 
   Palette, 
-  Check,
-  Menu,
-  X
+  Check
 } from 'lucide-react';
 import { DayLog, AppState, UserProfile, ThemeType } from './types';
 import { getTodayStr } from './utils/time';
@@ -155,14 +153,14 @@ const App: React.FC = () => {
   }, [state.userLogs, state.config, state.isAuthenticated, isHydrated, state.currentUser, isAdmin]);
 
   useEffect(() => {
-    const timeoutId = setTimeout(saveToCloud, 5000);
+    const timeoutId = setTimeout(saveToCloud, 3000); // Faster sync trigger
     return () => clearTimeout(timeoutId);
   }, [state.userLogs, state.config, saveToCloud]);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    // Refresh background data every 60 seconds
-    const cloudTimer = setInterval(() => loadFromCloud(true), 60000);
+    // Refresh background data every 30 seconds for better real-time feel
+    const cloudTimer = setInterval(() => loadFromCloud(true), 30000);
     return () => {
       clearInterval(timer);
       clearInterval(cloudTimer);
@@ -232,7 +230,6 @@ const App: React.FC = () => {
         body: JSON.stringify(payload)
       });
       setSyncStatus('connected');
-      // If action was provisioning, reload cloud to see new nodes
       if (specialAction === 'PROVISION_USER') loadFromCloud();
     } catch (e) {
       setSyncStatus('error');
@@ -258,7 +255,7 @@ const App: React.FC = () => {
     { id: 'tasks', icon: CheckSquare, label: 'Tasks' },
     { id: 'reports', icon: FileText, label: 'Audits' },
     ...(isAdmin ? [
-      { id: 'activity', icon: Activity, label: 'Activity' },
+      { id: 'activity', icon: Activity, label: 'Users' },
       { id: 'admin', icon: ShieldCheck, label: 'Admin' }
     ] : [])
   ];
@@ -281,7 +278,7 @@ const App: React.FC = () => {
             <Clock className="text-white w-6 h-6" />
           </div>
           <h1 className="text-sm font-black leading-tight uppercase tracking-tight text-current">
-            Task & Time <span className="text-theme-primary">Manager</span>
+            Workforce <span className="text-theme-primary">OS</span>
           </h1>
         </div>
         <nav className="flex-1 space-y-2">
@@ -324,9 +321,9 @@ const App: React.FC = () => {
              <div className="md:hidden w-8 h-8 bg-theme-primary rounded-lg flex items-center justify-center shadow-lg">
                 <Clock className="text-white w-5 h-5" />
              </div>
-             <h2 className="text-lg font-bold">{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}</h2>
+             <h2 className="text-lg font-black uppercase tracking-widest">{activeTab}</h2>
           </div>
-          <div className="flex items-center gap-2 md:gap-4">
+          <div className="flex items-center gap-2">
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-800/20 bg-black/10`}>
               {syncStatus === 'hydrating' || syncStatus === 'syncing' ? (
                 <Loader2 size={12} className="text-theme-primary animate-spin" />
@@ -342,25 +339,23 @@ const App: React.FC = () => {
             
             <button 
               onClick={() => setShowThemeGallery(!showThemeGallery)}
-              className="p-2 rounded-full border border-slate-800/20 bg-black/10 hover:bg-black/20 transition-all text-slate-400 hover:text-theme-primary"
+              className="p-2 rounded-full border border-slate-800/20 bg-black/10 hover:bg-black/20 transition-all text-slate-400"
             >
               <Palette size={18} />
             </button>
             
             {showThemeGallery && (
               <div className="absolute right-0 mt-3 top-full w-64 p-4 rounded-3xl app-card border shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-200">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-4 px-1">Visual Environment</p>
-                <div className="grid grid-cols-2 gap-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-4 px-1">Visual Theme</p>
+                <div className="grid grid-cols-2 gap-2">
                   {themes.map(t => (
                     <button 
                       key={t.id}
                       onClick={() => { setState(p => ({...p, theme: t.id})); setShowThemeGallery(false); }}
-                      className={`group flex flex-col items-center gap-2 p-3 rounded-2xl transition-all border ${state.theme === t.id ? 'border-theme-primary bg-theme-primary/10' : 'border-slate-800/10 hover:border-slate-800/30 bg-black/10'}`}
+                      className={`flex flex-col items-center gap-2 p-3 rounded-2xl transition-all border ${state.theme === t.id ? 'border-theme-primary bg-theme-primary/10' : 'border-slate-800/10 bg-black/10'}`}
                     >
-                      <div className={`w-8 h-8 rounded-lg shadow-inner ${t.color} flex items-center justify-center`}>
-                        {state.theme === t.id && <Check size={14} className={t.id === 'light' ? 'text-indigo-600' : 'text-white'} />}
-                      </div>
-                      <span className="text-[9px] font-bold text-center leading-tight uppercase tracking-tighter opacity-70 group-hover:opacity-100">
+                      <div className={`w-8 h-8 rounded-lg shadow-inner ${t.color}`} />
+                      <span className="text-[8px] font-black uppercase tracking-tighter opacity-70">
                         {t.label}
                       </span>
                     </button>
@@ -368,10 +363,6 @@ const App: React.FC = () => {
                 </div>
               </div>
             )}
-            
-            <button onClick={handleLogout} className="md:hidden p-2 text-slate-400 hover:text-red-400">
-              <LogOut size={18} />
-            </button>
           </div>
         </header>
 
@@ -379,20 +370,20 @@ const App: React.FC = () => {
           {!isHydrated && state.isAuthenticated ? (
             <div className="flex flex-col items-center justify-center py-24 animate-pulse">
               <RefreshCw size={48} className="text-theme-primary animate-spin mb-4" />
-              <p className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500">Syncing Cloud Database...</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">Syncing Cloud Node...</p>
             </div>
           ) : (
             <>
               {activeTab === 'overview' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  <AttendancePanel log={todayLog} config={state.config} onUpdate={updateTodayLog} logs={currentUserLogs} />
+                  <AttendancePanel log={todayLog} config={state.config} onUpdate={updateTodayLog} logs={currentUserLogs} state={state} />
                   <AnalysisPanel log={todayLog} config={state.config} currentTime={currentTime} />
                   <InsightsPanel log={todayLog} logs={currentUserLogs} config={state.config} currentTime={currentTime} />
                 </div>
               )}
-              {activeTab === 'attendance' && <AttendancePanel log={todayLog} config={state.config} onUpdate={updateTodayLog} logs={currentUserLogs} isFullWidth />}
+              {activeTab === 'attendance' && <AttendancePanel log={todayLog} config={state.config} onUpdate={updateTodayLog} logs={currentUserLogs} state={state} isFullWidth />}
               {activeTab === 'tasks' && <TaskPanel log={todayLog} onUpdate={updateTodayLog} historicalLogs={currentUserLogs} isFullWidth />}
-              {activeTab === 'reports' && <ReportsPanel logs={currentUserLogs} config={state.config} user={state.currentUser} isFullWidth />}
+              {activeTab === 'reports' && <ReportsPanel state={state} isFullWidth />}
               {activeTab === 'activity' && isAdmin && <UserActivityPanel state={state} />}
               {activeTab === 'admin' && isAdmin && <AdminPanel state={state} updateConfig={updateConfig} restoreFullState={restoreFullState} triggerManualSync={triggerManualSync} />}
             </>
@@ -400,8 +391,8 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Mobile Bottom Navigation */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-950/80 backdrop-blur-xl border-t border-slate-800/50 flex items-center justify-around py-4 px-2 z-50 no-print">
+      {/* Mobile Bottom Navigation Bar */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-950/90 backdrop-blur-xl border-t border-slate-800/50 flex items-center justify-around py-4 px-2 z-50 no-print shadow-[0_-10px_20px_rgba(0,0,0,0.5)]">
         {navItems.map(item => (
           <button
             key={item.id}
@@ -411,7 +402,7 @@ const App: React.FC = () => {
             }`}
           >
             <item.icon size={20} strokeWidth={activeTab === item.id ? 2.5 : 2} />
-            <span className="text-[9px] font-black uppercase tracking-widest">{item.label}</span>
+            <span className="text-[8px] font-black uppercase tracking-widest">{item.label}</span>
           </button>
         ))}
       </nav>

@@ -8,45 +8,56 @@ import {
   Loader2, 
   TrendingUp,
   Clock,
-  CheckCircle2,
-  Calendar
+  Users,
+  ShieldAlert
 } from 'lucide-react';
-import { DayLog, AppState, UserProfile } from '../types';
+// Added Task to imports to fix type issues in derivation
+import { DayLog, AppState, UserProfile, Task } from '../types';
 import { getTodayStr, diffMinutes, formatMinutesToDisplay, isLate } from '../utils/time';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { jsPDF } from 'jspdf';
 import * as XLSX from 'xlsx';
 
 interface Props {
-  logs: Record<string, DayLog>;
-  config: AppState['config'];
-  user?: UserProfile;
+  state: AppState;
   isFullWidth?: boolean;
 }
 
-const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
+const ReportsPanel: React.FC<Props> = ({ state, isFullWidth }) => {
+  const { userLogs, currentUser, config } = state;
   const [reportType, setReportType] = useState<'daily' | 'monthly'>('daily');
   const [isExporting, setIsExporting] = useState<string | null>(null);
 
-  const allLogs = useMemo(() => (Object.values(logs) as DayLog[]).sort((a, b) => b.date.localeCompare(a.date)), [logs]);
+  // Derived todayLog to fix missing variable error in daily report section
+  const todayLog = useMemo(() => {
+    const userId = currentUser?.id || '';
+    const logs = userLogs[userId] || {};
+    const todayStr = getTodayStr();
+    return logs[todayStr] || { date: todayStr, tasks: [] as Task[] };
+  }, [userLogs, currentUser]);
+
+  const isAdmin = currentUser?.role === 'admin';
+  const myLogs = useMemo(() => userLogs[currentUser?.id || ''] || {}, [userLogs, currentUser]);
+  const allLogsList = useMemo(() => (Object.values(myLogs) as DayLog[]).sort((a, b) => b.date.localeCompare(a.date)), [myLogs]);
+  
   const currentMonth = new Date().getMonth();
   const currentYear = new Date().getFullYear();
   const monthName = new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date());
   
-  const monthlyLogs = useMemo(() => allLogs.filter(l => {
+  const monthlyLogs = useMemo(() => allLogsList.filter(l => {
     const d = new Date(l.date);
     return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-  }), [allLogs, currentMonth, currentYear]);
+  }), [allLogsList, currentMonth, currentYear]);
 
   const stats = useMemo(() => {
     const totalActual = monthlyLogs.reduce((sum, l) => sum + l.tasks.reduce((tsum, t) => tsum + t.actualDuration, 0), 0);
+    const totalAllocated = monthlyLogs.reduce((sum, l) => sum + l.tasks.reduce((asum, t) => asum + t.duration, 0), 0);
     const totalOffice = monthlyLogs.reduce((sum, l) => (l.timeIn && l.timeOut) ? sum + diffMinutes(l.timeIn, l.timeOut) : sum, 0);
     const lateCount = monthlyLogs.filter(l => l.timeIn && isLate(l.timeIn, config.officeStartTime)).length;
     const avgEfficiency = totalOffice > 0 ? (totalActual / totalOffice) * 100 : 0;
     const totalTasks = monthlyLogs.reduce((sum, l) => sum + l.tasks.length, 0);
     const completedTasks = monthlyLogs.reduce((sum, l) => sum + l.tasks.filter(t => t.status === 'completed').length, 0);
-    const totalAllocated = monthlyLogs.reduce((sum, l) => sum + l.tasks.reduce((asum, t) => asum + t.duration, 0), 0);
-    return { totalActual, totalOffice, lateCount, avgEfficiency, totalTasks, completedTasks, totalAllocated };
+    return { totalActual, totalAllocated, totalOffice, lateCount, avgEfficiency, totalTasks, completedTasks };
   }, [monthlyLogs, config.officeStartTime]);
 
   const chartData = useMemo(() => {
@@ -70,223 +81,212 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
       const margin = 15;
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
-      let y = 0;
+      let y = 50;
 
-      const drawReportHeader = (pageNum: number) => {
+      const drawHeader = (title: string, subtitle: string) => {
+        doc.setFillColor(15, 23, 42); 
+        doc.rect(0, 0, pageWidth, 45, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(20);
+        doc.setFont('helvetica', 'bold');
+        doc.text(title, margin, 20);
+        doc.setFontSize(10);
+        doc.setTextColor(99, 102, 241);
+        doc.text(subtitle, margin, 28);
+        doc.setFontSize(8);
+        doc.setTextColor(148, 163, 184);
+        doc.text(`DATE GENERATED: ${new Date().toLocaleString()}`, margin, 34);
+      };
+
+      drawHeader('INDIVIDUAL TASK AUDIT', `EMPLOYEE: ${currentUser?.name.toUpperCase()} (ID: ${currentUser?.id})`);
+
+      // Summary Totals Section
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(margin, y, pageWidth - (margin * 2), 25, 2, 2, 'F');
+      doc.setTextColor(15, 23, 42);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.text('AUDIT PERIOD TOTALS', margin + 5, y + 8);
+      
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.text(`Total Allocated Time: ${formatMinutesToDisplay(stats.totalAllocated)}`, margin + 5, y + 15);
+      doc.text(`Total Actual Time: ${formatMinutesToDisplay(stats.totalActual)}`, margin + 5, y + 20);
+      
+      const timeDiff = stats.totalActual - stats.totalAllocated;
+      doc.setTextColor(timeDiff > 0 ? 220 : 16, timeDiff > 0 ? 38 : 185, timeDiff > 0 ? 38 : 129);
+      doc.text(`Variance: ${timeDiff > 0 ? '+' : ''}${formatMinutesToDisplay(timeDiff)}`, pageWidth - margin - 45, y + 17);
+      
+      y += 35;
+
+      // Table
+      const headers = ['DATE', 'TASK TITLE', 'EST', 'ACT', 'STATUS'];
+      const colWidths = [25, pageWidth - margin * 2 - 75, 20, 20, 15];
+      
+      const drawTableHead = (py: number) => {
+        doc.setFillColor(30, 41, 59);
+        doc.rect(margin, py, pageWidth - margin * 2, 8, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(7);
+        doc.setFont('helvetica', 'bold');
+        let cx = margin + 2;
+        headers.forEach((h, i) => {
+          doc.text(h, cx, py + 5.5);
+          cx += colWidths[i];
+        });
+        return py + 8;
+      };
+
+      y = drawTableHead(y);
+
+      monthlyLogs.forEach((l) => {
+        l.tasks.forEach((t) => {
+          if (y > pageHeight - 20) {
+            doc.addPage();
+            y = 15;
+            y = drawTableHead(y);
+          }
+          doc.setTextColor(15, 23, 42);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7);
+          let cx = margin + 2;
+          doc.text(l.date, cx, y + 5);
+          cx += colWidths[0];
+          doc.text(t.title.substring(0, 50), cx, y + 5);
+          cx += colWidths[1];
+          doc.text(formatMinutesToDisplay(t.duration), cx, y + 5);
+          cx += colWidths[2];
+          doc.text(formatMinutesToDisplay(t.actualDuration), cx, y + 5);
+          cx += colWidths[3];
+          doc.text(t.status.toUpperCase(), cx, y + 5);
+          
+          doc.setDrawColor(226, 232, 240);
+          doc.line(margin, y + 8, pageWidth - margin, y + 8);
+          y += 8;
+        });
+      });
+
+      doc.save(`Audit_${currentUser?.id}_${monthName}.pdf`);
+    } finally {
+      setIsExporting(null);
+    }
+  };
+
+  const exportMasterActivityPDF = async () => {
+    if (!isAdmin) return;
+    setIsExporting('master');
+    try {
+      const doc = new jsPDF('l', 'mm', 'a4'); // Landscape for more data
+      const margin = 10;
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      let y = 50;
+
+      const drawHeader = () => {
         doc.setFillColor(15, 23, 42); 
         doc.rect(0, 0, pageWidth, 45, 'F');
         doc.setTextColor(255, 255, 255);
         doc.setFontSize(22);
         doc.setFont('helvetica', 'bold');
-        doc.text('PERFORMANCE AUDIT REPORT', margin, 22);
+        doc.text('ORGANIZATIONAL ACTIVITY MASTER AUDIT', margin, 20);
         doc.setFontSize(10);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(99, 102, 241); 
-        doc.text(`USER: ${user?.name?.toUpperCase() || 'SYSTEM USER'}`, margin, 32);
+        doc.setTextColor(99, 102, 241);
+        doc.text('ALL USERS DAILY ATTENDANCE & PERFORMANCE SUMMARY', margin, 28);
         doc.setFontSize(8);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(148, 163, 184); 
-        doc.text(`NODE ID: ${user?.id || 'UNASSIGNED'}`, margin, 38);
-        doc.text(`GENERATED: ${new Date().toLocaleString()}`, pageWidth - margin - 55, 32);
-        doc.text(`PERIOD: ${monthName} ${currentYear}`, pageWidth - margin - 55, 38);
-        if (pageNum > 1) {
-          doc.setTextColor(148, 163, 184);
-          doc.text(`Page ${pageNum}`, pageWidth - margin - 15, 10);
-        }
+        doc.setTextColor(148, 163, 184);
+        doc.text(`DATE GENERATED: ${new Date().toLocaleString()}`, margin, 34);
       };
 
-      drawReportHeader(1);
-      y = 55;
+      drawHeader();
 
-      // Executive Summary
-      doc.setDrawColor(226, 232, 240);
-      doc.setFillColor(248, 250, 252);
-      const gridW = (pageWidth - (margin * 2) - 10) / 3;
-      const gridH = 20;
+      const headers = ['USER ID', 'EMPLOYEE NAME', 'DATE', 'TIME IN', 'TIME OUT', 'WORK TIME', 'TASKS'];
+      const colWidths = [25, 45, 30, 25, 25, 30, 20];
 
-      doc.roundedRect(margin, y, gridW, gridH, 2, 2, 'FD');
-      doc.setTextColor(100, 116, 139);
-      doc.setFontSize(7);
-      doc.text('TOTAL ACTUAL TIME', margin + 5, y + 6);
-      doc.setTextColor(15, 23, 42);
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.text(formatMinutesToDisplay(stats.totalActual), margin + 5, y + 15);
-
-      doc.roundedRect(margin + gridW + 5, y, gridW, gridH, 2, 2, 'FD');
-      doc.setTextColor(100, 116, 139);
-      doc.setFontSize(7);
-      doc.text('RESOURCE EFFICIENCY', margin + gridW + 10, y + 6);
-      doc.setTextColor(79, 70, 229);
-      doc.text(`${stats.avgEfficiency.toFixed(1)}%`, margin + gridW + 10, y + 15);
-
-      doc.roundedRect(margin + (gridW * 2) + 10, y, gridW, gridH, 2, 2, 'FD');
-      doc.setTextColor(100, 116, 139);
-      doc.setFontSize(7);
-      doc.text('TASKS COMPLETED', margin + (gridW * 2) + 15, y + 6);
-      doc.setTextColor(16, 185, 129);
-      doc.text(`${stats.completedTasks} / ${stats.totalTasks}`, margin + (gridW * 2) + 15, y + 15);
-
-      y += 30;
-
-      const tableHeaders = [
-        { name: 'DATE', w: 22 },
-        { name: 'TASK DESCRIPTION', w: pageWidth - (margin * 2) - 85 },
-        { name: 'ALLOCATED', w: 22 },
-        { name: 'ACTUAL', w: 22 },
-        { name: 'STATUS', w: 19 }
-      ];
-
-      const drawTableHeader = (posY: number) => {
-        doc.setFillColor(15, 23, 42);
-        doc.rect(margin, posY, pageWidth - (margin * 2), 10, 'F');
+      const drawTableHead = (py: number) => {
+        doc.setFillColor(30, 41, 59);
+        doc.rect(margin, py, pageWidth - margin * 2, 10, 'F');
         doc.setTextColor(255, 255, 255);
         doc.setFontSize(8);
         doc.setFont('helvetica', 'bold');
-        let curX = margin;
-        tableHeaders.forEach(h => {
-          doc.text(h.name, curX + 3, posY + 6.5);
-          curX += h.w;
+        let cx = margin + 3;
+        headers.forEach((h, i) => {
+          doc.text(h, cx, py + 6.5);
+          cx += colWidths[i];
         });
-        return posY + 10;
+        return py + 10;
       };
 
-      y = drawTableHeader(y);
+      y = drawTableHead(y);
       doc.setFont('helvetica', 'normal');
-      doc.setTextColor(31, 41, 55);
+      doc.setTextColor(15, 23, 42);
 
-      let currentPDFPage = 1;
-      let rowCount = 0;
+      let totalGlobalMinutes = 0;
 
-      monthlyLogs.forEach((log) => {
-        log.tasks.forEach((task) => {
-          if (y > pageHeight - 40) { // Keep space for summary footer
+      config.users.forEach(u => {
+        const logs = userLogs[u.id] || {};
+        const sortedDates = Object.keys(logs).sort((a, b) => b.localeCompare(a));
+        
+        sortedDates.forEach(date => {
+          const l = logs[date];
+          if (y > pageHeight - 15) {
             doc.addPage();
-            currentPDFPage++;
-            drawReportHeader(currentPDFPage);
-            y = 55;
-            y = drawTableHeader(y);
-            doc.setFont('helvetica', 'normal');
-            doc.setTextColor(31, 41, 55);
+            y = 15;
+            y = drawTableHead(y);
           }
 
-          if (rowCount % 2 === 0) {
-            doc.setFillColor(249, 250, 251);
-            doc.rect(margin, y, pageWidth - (margin * 2), 10, 'F');
-          }
-          
+          const workMins = (l.timeIn && l.timeOut) ? diffMinutes(l.timeIn, l.timeOut) : 0;
+          totalGlobalMinutes += workMins;
+
+          let cx = margin + 3;
+          doc.text(u.id, cx, y + 6);
+          cx += colWidths[0];
+          doc.text(u.name, cx, y + 6);
+          cx += colWidths[1];
+          doc.text(date, cx, y + 6);
+          cx += colWidths[2];
+          doc.text(l.timeIn || '—', cx, y + 6);
+          cx += colWidths[3];
+          doc.text(l.timeOut || '—', cx, y + 6);
+          cx += colWidths[4];
+          doc.text(formatMinutesToDisplay(workMins), cx, y + 6);
+          cx += colWidths[5];
+          doc.text(l.tasks.length.toString(), cx, y + 6);
+
           doc.setDrawColor(226, 232, 240);
-          doc.rect(margin, y, pageWidth - (margin * 2), 10); 
-
-          let curX = margin;
-          doc.setFontSize(7);
-          doc.text(log.date, curX + 3, y + 6.5);
-          curX += tableHeaders[0].w;
-          
-          const titleText = task.title.length > 60 ? task.title.substring(0, 57) + "..." : task.title;
-          doc.text(titleText, curX + 3, y + 6.5);
-          curX += tableHeaders[1].w;
-          
-          doc.text(formatMinutesToDisplay(task.duration), curX + 3, y + 6.5);
-          curX += tableHeaders[2].w;
-          
-          if (task.actualDuration > task.duration) {
-            doc.setTextColor(220, 38, 38); 
-          } else {
-            doc.setTextColor(16, 185, 129); 
-          }
-          doc.text(formatMinutesToDisplay(task.actualDuration), curX + 3, y + 6.5);
-          doc.setTextColor(31, 41, 55);
-          curX += tableHeaders[3].w;
-          
-          doc.setFontSize(6);
-          doc.text(task.status.toUpperCase(), curX + 3, y + 6.5);
-          doc.setFontSize(7);
-          
+          doc.line(margin, y + 10, pageWidth - margin, y + 10);
           y += 10;
-          rowCount++;
         });
       });
 
-      // --- SUMMARY FOOTER SECTION ---
-      if (y > pageHeight - 35) {
+      // Master Summary Footer
+      if (y > pageHeight - 30) {
         doc.addPage();
-        currentPDFPage++;
-        drawReportHeader(currentPDFPage);
-        y = 55;
+        y = 15;
       }
-      
-      y += 10;
-      doc.setDrawColor(15, 23, 42);
-      doc.setLineWidth(0.5);
-      doc.line(margin, y, pageWidth - margin, y);
-      y += 5;
-      
-      doc.setFont('helvetica', 'bold');
+      doc.setFillColor(15, 23, 42);
+      doc.rect(margin, y + 5, pageWidth - margin * 2, 15, 'F');
+      doc.setTextColor(255, 255, 255);
       doc.setFontSize(10);
-      doc.setTextColor(15, 23, 42);
-      doc.text('AUDIT SUMMARY TOTALS', margin, y + 5);
-      
-      doc.setFillColor(241, 245, 249);
-      doc.rect(margin, y + 8, pageWidth - (margin * 2), 15, 'F');
-      
-      doc.setFontSize(8);
-      doc.text('TOTAL ALLOCATED TIME:', margin + 5, y + 17);
-      doc.text(formatMinutesToDisplay(stats.totalAllocated), margin + 55, y + 17);
-      
-      doc.text('TOTAL ACTUAL TIME USED:', margin + pageWidth/2, y + 17);
-      doc.text(formatMinutesToDisplay(stats.totalActual), margin + pageWidth/2 + 55, y + 17);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`GRAND TOTAL WORKFORCE HOURS: ${formatMinutesToDisplay(totalGlobalMinutes)}`, margin + 5, y + 15);
 
-      doc.setFontSize(7);
-      doc.setTextColor(148, 163, 184);
-      const footerY = pageHeight - 10;
-      doc.text('DETAILED AUDIT LOGS GENERATED BY PERFORMANCE ENGINE V11. DATA VERIFIED BY NODE TIMESTAMP.', margin, footerY);
-      doc.text(`Page ${currentPDFPage}`, pageWidth - margin - 15, footerY);
-
-      doc.save(`Performance_Audit_${user?.id || 'User'}_${monthName}.pdf`);
-    } catch (err) {
-      console.error("PDF export failed:", err);
+      doc.save(`Master_Organizational_Audit_${getTodayStr()}.pdf`);
     } finally {
       setIsExporting(null);
     }
   };
-
-  const exportToExcel = () => {
-    setIsExporting('excel');
-    try {
-      const tasksData: any[] = [];
-      monthlyLogs.forEach(l => l.tasks.forEach(t => tasksData.push({
-        Date: l.date,
-        "Task Title": t.title,
-        "Allocated Minutes": t.duration,
-        "Actual Minutes": t.actualDuration,
-        "Difference": t.actualDuration - t.duration,
-        "Status": t.status
-      })));
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tasksData), "Task Log");
-      XLSX.writeFile(wb, `Audit_${user?.id || 'User'}_${getTodayStr()}.xlsx`);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setIsExporting(null);
-    }
-  };
-
-  const todayStr = getTodayStr();
-  const todayLog = logs[todayStr] || { date: todayStr, tasks: [] };
 
   return (
     <div className={`bg-slate-900/40 border border-slate-800 rounded-3xl p-4 md:p-6 backdrop-blur-xl shadow-2xl flex flex-col ${isFullWidth ? 'min-h-screen' : ''}`}>
       <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 mb-8 no-print">
-        <div>
-          <h3 className="text-xl font-bold flex items-center gap-2.5 text-white">
-            <div className="p-2.5 bg-indigo-600/20 text-indigo-400 rounded-2xl border border-indigo-500/20 shadow-inner">
-              <BarChart2 size={22} />
-            </div>
-            Output Intelligence
-          </h3>
-          <p className="text-xs text-slate-500 mt-1">Granular task performance and time-utilization metrics</p>
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-indigo-600/20 text-indigo-400 rounded-2xl border border-indigo-500/20 shadow-inner">
+            <BarChart2 size={22} />
+          </div>
+          <div>
+            <h3 className="text-xl font-bold text-white">Performance Audits</h3>
+            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Data-driven output tracking</p>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 md:gap-3 w-full lg:w-auto">
@@ -294,12 +294,16 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
             <button onClick={() => setReportType('daily')} className={`flex-1 md:flex-none px-4 py-2 text-[10px] font-black uppercase tracking-[0.15em] rounded-xl transition-all ${reportType === 'daily' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-600 hover:text-slate-300'}`}>Daily</button>
             <button onClick={() => setReportType('monthly')} className={`flex-1 md:flex-none px-4 py-2 text-[10px] font-black uppercase tracking-[0.15em] rounded-xl transition-all ${reportType === 'monthly' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-600 hover:text-slate-300'}`}>Monthly</button>
           </div>
+          
           <button onClick={exportToPDF} disabled={!!isExporting} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-800/80 hover:bg-slate-700 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider border border-slate-700 transition-all active:scale-95 disabled:opacity-50">
-            {isExporting === 'pdf' ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />} PDF Audit
+            {isExporting === 'pdf' ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />} PDF Report
           </button>
-          <button onClick={exportToExcel} disabled={!!isExporting} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all shadow-lg active:scale-95 disabled:opacity-50">
-            {isExporting === 'excel' ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />} XLS Report
-          </button>
+
+          {isAdmin && (
+            <button onClick={exportMasterActivityPDF} disabled={!!isExporting} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all shadow-lg active:scale-95 disabled:opacity-50">
+              {isExporting === 'master' ? <Loader2 size={14} className="animate-spin" /> : <Users size={14} />} Master Audit PDF
+            </button>
+          )}
         </div>
       </div>
 
@@ -307,47 +311,45 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
         {reportType === 'daily' ? (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-slate-950/50 p-4 md:p-5 rounded-[2rem] border border-slate-800">
-                  <p className="text-[9px] text-slate-500 uppercase tracking-widest font-black mb-2">Shift Start</p>
-                  <p className="text-xl md:text-2xl font-black text-white tabular-nums">{todayLog.timeIn || '—'}</p>
+                <div className="bg-slate-950/50 p-4 rounded-[2rem] border border-slate-800">
+                  <p className="text-[9px] text-slate-500 uppercase tracking-widest font-black mb-2">Allocated</p>
+                  <p className="text-xl font-black text-white tabular-nums">{formatMinutesToDisplay(todayLog.tasks.reduce((s, t) => s + t.duration, 0))}</p>
                 </div>
-                <div className="bg-slate-950/50 p-4 md:p-5 rounded-[2rem] border border-slate-800">
-                  <p className="text-[9px] text-slate-500 uppercase tracking-widest font-black mb-2">Task Time</p>
-                  <p className="text-xl md:text-2xl font-black text-indigo-400 tabular-nums">{formatMinutesToDisplay(todayLog.tasks.reduce((s, t) => s + t.actualDuration, 0))}</p>
+                <div className="bg-slate-950/50 p-4 rounded-[2rem] border border-slate-800">
+                  <p className="text-[9px] text-slate-500 uppercase tracking-widest font-black mb-2">Actual</p>
+                  <p className="text-xl font-black text-indigo-400 tabular-nums">{formatMinutesToDisplay(todayLog.tasks.reduce((s, t) => s + t.actualDuration, 0))}</p>
                 </div>
-                <div className="bg-slate-950/50 p-4 md:p-5 rounded-[2rem] border border-slate-800">
-                  <p className="text-[9px] text-slate-500 uppercase tracking-widest font-black mb-2">Office Hours</p>
-                  <p className="text-xl md:text-2xl font-black text-white tabular-nums">{(todayLog.timeIn && todayLog.timeOut) ? formatMinutesToDisplay(diffMinutes(todayLog.timeIn, todayLog.timeOut)) : '0h 0m'}</p>
+                <div className="bg-slate-950/50 p-4 rounded-[2rem] border border-slate-800">
+                  <p className="text-[9px] text-slate-500 uppercase tracking-widest font-black mb-2">Office Time</p>
+                  <p className="text-xl font-black text-white tabular-nums">{(todayLog.timeIn && todayLog.timeOut) ? formatMinutesToDisplay(diffMinutes(todayLog.timeIn, todayLog.timeOut)) : '—'}</p>
                 </div>
-                <div className="bg-slate-950/50 p-4 md:p-5 rounded-[2rem] border border-slate-800">
-                  <p className="text-[9px] text-slate-500 uppercase tracking-widest font-black mb-2">Efficiency</p>
-                  <p className="text-xl md:text-2xl font-black text-emerald-400 uppercase tracking-widest">A-Grade</p>
+                <div className="bg-slate-950/50 p-4 rounded-[2rem] border border-slate-800">
+                  <p className="text-[9px] text-slate-500 uppercase tracking-widest font-black mb-2">Utilization</p>
+                  <p className="text-xl font-black text-emerald-400">{stats.avgEfficiency.toFixed(0)}%</p>
                 </div>
              </div>
+             
              <div className="bg-slate-950/30 rounded-[2.5rem] border border-slate-800/50 overflow-hidden">
                 <div className="px-6 py-5 bg-slate-950/80 border-b border-slate-800 flex justify-between items-center">
-                  <h4 className="text-[11px] font-black text-white uppercase tracking-[0.2em]">Daily Output Audit</h4>
-                  <span className="text-[10px] font-bold text-slate-500">{todayStr}</span>
+                  <h4 className="text-[11px] font-black text-white uppercase tracking-[0.2em]">Detailed Task Logs</h4>
+                  <span className="text-[10px] font-bold text-slate-500">{getTodayStr()}</span>
                 </div>
                 <div className="p-4 space-y-3">
                   {todayLog.tasks.length === 0 ? (
                     <div className="p-8 text-center text-slate-600 italic text-sm">No activity recorded for today.</div>
                   ) : (
                     todayLog.tasks.map(t => (
-                      <div key={t.id} className="flex justify-between items-center p-5 bg-slate-900/40 rounded-3xl border border-slate-800/50 hover:bg-slate-800 transition-colors">
+                      <div key={t.id} className="flex justify-between items-center p-4 bg-slate-900/40 rounded-3xl border border-slate-800/50">
                         <div>
                           <p className="text-sm font-bold text-white">{t.title}</p>
-                          <p className={`text-[9px] uppercase font-black tracking-widest mt-1 ${t.status === 'completed' ? 'text-emerald-500' : 'text-amber-500'}`}>{t.status}</p>
+                          <div className="flex items-center gap-3 mt-1">
+                            <span className={`text-[8px] uppercase font-black px-1.5 py-0.5 rounded ${t.status === 'completed' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'}`}>{t.status}</span>
+                            <span className="text-[9px] text-slate-600 font-bold">Planned: {formatMinutesToDisplay(t.duration)}</span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-4 md:gap-8">
-                          <div className="text-right">
-                            <p className="text-[9px] text-slate-600 uppercase font-black mb-1">Actual</p>
-                            <p className="text-sm font-mono font-bold text-indigo-400">{formatMinutesToDisplay(t.actualDuration)}</p>
-                          </div>
-                          <div className="text-right border-l border-slate-800 pl-4 md:pl-6">
-                            <p className="text-[9px] text-slate-600 uppercase font-black mb-1">Plan</p>
-                            <p className="text-sm font-mono font-bold text-slate-500">{formatMinutesToDisplay(t.duration)}</p>
-                          </div>
+                        <div className="text-right">
+                           <p className="text-sm font-mono font-bold text-indigo-400">{formatMinutesToDisplay(t.actualDuration)}</p>
+                           <p className="text-[8px] text-slate-600 uppercase font-black">Actual Used</p>
                         </div>
                       </div>
                     ))
@@ -359,41 +361,50 @@ const ReportsPanel: React.FC<Props> = ({ logs, config, user, isFullWidth }) => {
           <div className="space-y-10 animate-in fade-in duration-700">
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                <div className="bg-slate-950/50 p-6 rounded-[2.5rem] border border-slate-800">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-black mb-4">Output (hrs)</p>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-black mb-4">Total Output</p>
                   <p className="text-3xl font-black text-white">{(stats.totalActual / 60).toFixed(1)}h</p>
                </div>
                <div className="bg-slate-950/50 p-6 rounded-[2.5rem] border border-slate-800">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-black mb-4">Utilization</p>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-black mb-4">Master Efficiency</p>
                   <p className="text-3xl font-black text-indigo-400">{stats.avgEfficiency.toFixed(0)}%</p>
                </div>
                <div className="bg-slate-950/50 p-6 rounded-[2.5rem] border border-slate-800">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-black mb-4">Punctuality</p>
-                  <p className="text-3xl font-black text-white">{monthlyLogs.length > 0 ? (100 - (stats.lateCount / monthlyLogs.length * 100)).toFixed(0) : 0}%</p>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-black mb-4">Late Count</p>
+                  <p className="text-3xl font-black text-white">{stats.lateCount}</p>
                </div>
                <div className="bg-slate-950/50 p-6 rounded-[2.5rem] border border-slate-800">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-black mb-4">Tasks Settle</p>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-black mb-4">Completed</p>
                   <p className="text-3xl font-black text-emerald-400">{stats.completedTasks}</p>
                </div>
             </div>
-            <div className="bg-slate-950/40 p-4 md:p-8 rounded-[3rem] border border-slate-800/50">
-                <div className="flex justify-between items-center mb-10">
-                  <h4 className="text-[12px] font-black text-white uppercase tracking-[0.3em] flex items-center gap-2"><TrendingUp size={16} /> Productivity Audit Heatmap</h4>
+            
+            {isAdmin && (
+              <div className="bg-indigo-600/10 border border-indigo-500/20 p-6 rounded-[2.5rem] flex flex-col md:flex-row items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                   <div className="p-3 bg-indigo-600 text-white rounded-2xl"><ShieldAlert size={24} /></div>
+                   <div>
+                      <h4 className="text-sm font-black text-white uppercase tracking-widest">Administrator Master Audit</h4>
+                      <p className="text-xs text-slate-400">Generate a comprehensive report of all employee activities across the entire organization.</p>
+                   </div>
                 </div>
-                <div className="h-64 md:h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={chartData}>
-                      <CartesianGrid strokeDasharray="5 5" stroke="#1e293b" vertical={false} />
-                      <XAxis dataKey="name" stroke="#475569" fontSize={11} tick={{fill: '#64748b', fontWeight: 'bold'}} />
-                      <YAxis stroke="#475569" fontSize={11} tick={{fill: '#64748b', fontWeight: 'bold'}} />
-                      <Tooltip 
-                        contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '16px' }} 
-                        itemStyle={{ color: '#f8fafc', fontSize: '11px', fontWeight: 'bold' }}
-                      />
-                      <Area type="monotone" dataKey="actual" stroke="#6366f1" strokeWidth={4} fill="#6366f122" />
-                      <Area type="monotone" dataKey="office" stroke="#334155" strokeWidth={2} fill="transparent" strokeDasharray="6 6" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
+                <button onClick={exportMasterActivityPDF} className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all shadow-xl">Generate Master PDF</button>
+              </div>
+            )}
+
+            <div className="bg-slate-950/40 p-4 md:p-8 rounded-[3rem] border border-slate-800/50 h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={chartData}>
+                    <CartesianGrid strokeDasharray="5 5" stroke="#1e293b" vertical={false} />
+                    <XAxis dataKey="name" stroke="#475569" fontSize={11} tick={{fill: '#64748b', fontWeight: 'bold'}} />
+                    <YAxis stroke="#475569" fontSize={11} tick={{fill: '#64748b', fontWeight: 'bold'}} />
+                    <Tooltip 
+                      contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '16px' }} 
+                      itemStyle={{ color: '#f8fafc', fontSize: '11px', fontWeight: 'bold' }}
+                    />
+                    <Area type="monotone" dataKey="actual" stroke="#6366f1" strokeWidth={4} fill="#6366f122" />
+                    <Area type="monotone" dataKey="office" stroke="#334155" strokeWidth={2} fill="transparent" strokeDasharray="6 6" />
+                  </AreaChart>
+                </ResponsiveContainer>
             </div>
           </div>
         )}
