@@ -1,4 +1,6 @@
 
+export type TaskPriority = 'low' | 'medium' | 'high';
+
 export interface Task {
   id: string;
   title: string;
@@ -10,6 +12,11 @@ export interface Task {
   status: 'pending' | 'completed';
   timerStartedAt?: number; // Timestamp for tracking active work
   createdAt: number;
+  updatedAt: number;
+  priority: TaskPriority;
+  dueDate?: string; // YYYY-MM-DD
+  dueTime?: string; // HH:mm
+  assignedBy?: string; // User ID of assigner
 }
 
 export enum AttendanceStatus {

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useMemo } from 'react';
 import { 
   ShieldCheck, 
   Database, 
@@ -15,18 +16,24 @@ import {
   X,
   Save as SaveIcon,
   Trash2,
-  Layers
+  Layers,
+  Send,
+  Calendar,
+  Clock as ClockIcon,
+  Flag
 } from 'lucide-react';
-import { AppState, UserProfile } from '../types';
+import { AppState, UserProfile, Task, TaskPriority } from '../types';
+import { getTodayStr } from '../utils/time';
 
 interface Props {
   state: AppState;
   updateConfig: (newConfig: Partial<AppState['config']>) => void;
   restoreFullState?: (newState: Partial<AppState>) => void;
   triggerManualSync?: (action?: string, extra?: any) => Promise<void>;
+  onAssignTask?: (userIds: string[], date: string, task: Task) => void;
 }
 
-const AdminPanel: React.FC<Props> = ({ state, updateConfig, triggerManualSync }) => {
+const AdminPanel: React.FC<Props> = ({ state, updateConfig, triggerManualSync, onAssignTask }) => {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [provisionSuccess, setProvisionSuccess] = useState(false);
   const [isProvisioning, setIsProvisioning] = useState(false);
@@ -35,6 +42,18 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, triggerManualSync })
   
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<UserProfile | null>(null);
+
+  // Task Assignment State
+  const [taskData, setTaskData] = useState({
+    title: '',
+    description: '',
+    startDate: getTodayStr(),
+    dueDate: getTodayStr(),
+    dueTime: '18:00',
+    allocatedTime: '60',
+    priority: 'medium' as TaskPriority,
+    selectedUserIds: [] as string[]
+  });
 
   const [provisionData, setProvisionData] = useState({
     newUserId: '',
@@ -75,6 +94,37 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, triggerManualSync })
     }
   };
 
+  const handleTaskAssign = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!taskData.title || taskData.selectedUserIds.length === 0 || !onAssignTask) return;
+
+    const newTask: Task = {
+      id: Math.random().toString(36).substr(2, 9),
+      title: taskData.title,
+      description: taskData.description,
+      duration: parseInt(taskData.allocatedTime),
+      actualDuration: 0,
+      status: 'pending',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      priority: taskData.priority,
+      dueDate: taskData.dueDate,
+      dueTime: taskData.dueTime,
+      assignedBy: state.currentUser?.id
+    };
+
+    onAssignTask(taskData.selectedUserIds, taskData.startDate, newTask);
+    
+    // Reset form
+    setTaskData({
+      ...taskData,
+      title: '',
+      description: '',
+      selectedUserIds: []
+    });
+    alert("Task assigned successfully!");
+  };
+
   const handleProvision = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!provisionData.newUserId || !provisionData.newPassword) return;
@@ -92,7 +142,6 @@ const AdminPanel: React.FC<Props> = ({ state, updateConfig, triggerManualSync })
     
     if (state.config.sheetUrl && triggerManualSync) {
       try {
-        // Explicitly send name for sheet creation
         await triggerManualSync('PROVISION_USER', { 
           targetUser: newUser,
           targetUserName: newUser.name,
@@ -183,17 +232,14 @@ function doPost(e) {
   // 3. User Data Routing (Isolated Sheets)
   if (data.userLogs) {
     if (role === "admin") {
-      // Admin Sync: Route each user's data to their specific sheet
       var users = data.config ? data.config.users : [];
       for (var uId in data.userLogs) {
-        // Find user name for sheet title
         var userObj = users.filter(function(u){ return u.id == uId })[0];
         var sName = userObj ? (userObj.name + " (" + userObj.id + ")") : ("USER_" + uId);
         var uSheet = ss.getSheetByName(sName) || ss.insertSheet(sName);
         upsertValue(uSheet, "LOG_BLOB", JSON.stringify(data.userLogs[uId]));
       }
     } else if (userId && userName) {
-      // Direct User Sync
       var sName = userName + " (" + userId + ")";
       var userSheet = ss.getSheetByName(sName) || ss.insertSheet(sName);
       var logs = data.userLogs[userId] || {};
@@ -218,14 +264,12 @@ function doGet(e) {
   var userLogs = {};
   
   if (role === "admin") {
-    // Collect from all user sheets
     var sheets = ss.getSheets();
     sheets.forEach(function(s) {
       var name = s.getName();
       if (name !== "GLOBAL_DB") {
         var blob = getValue(s, "LOG_BLOB");
         if (blob) {
-          // Extract ID from bracketed portion of name "Name (ID)"
           var idMatch = name.match(/\\(([^)]+)\\)$/);
           var uId = idMatch ? idMatch[1] : name;
           userLogs[uId] = JSON.parse(blob);
@@ -269,6 +313,124 @@ function getValue(sheet, key) {
   return (
     <div className="space-y-8 pb-12">
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+        {/* Task Assignment Section */}
+        <div className="bg-slate-900/40 rounded-[2.5rem] p-8 border border-slate-800 backdrop-blur-md shadow-2xl xl:col-span-2">
+           <div className="flex justify-between items-center mb-8">
+              <div>
+                <h3 className="text-xl font-black text-white uppercase tracking-tighter flex items-center gap-3">
+                  <Send size={24} className="text-indigo-400" /> Advanced Task Distribution
+                </h3>
+                <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black mt-1">Assign work modules to single or multiple nodes</p>
+              </div>
+           </div>
+
+           <form onSubmit={handleTaskAssign} className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Task Title</label>
+                  <input 
+                    required
+                    value={taskData.title}
+                    onChange={e => setTaskData({...taskData, title: e.target.value})}
+                    placeholder="Enter objective title..."
+                    className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-white outline-none focus:border-indigo-500 transition-all"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Description & Context</label>
+                  <textarea 
+                    value={taskData.description}
+                    onChange={e => setTaskData({...taskData, description: e.target.value})}
+                    placeholder="Provide technical details..."
+                    className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-white outline-none focus:border-indigo-500 h-32 resize-none"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                   <div className="space-y-2">
+                      <label className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Due Date</label>
+                      <input 
+                        type="date"
+                        value={taskData.dueDate}
+                        onChange={e => setTaskData({...taskData, dueDate: e.target.value})}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-white"
+                      />
+                   </div>
+                   <div className="space-y-2">
+                      <label className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Due Time</label>
+                      <input 
+                        type="time"
+                        value={taskData.dueTime}
+                        onChange={e => setTaskData({...taskData, dueTime: e.target.value})}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-white"
+                      />
+                   </div>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Target Nodes (Select Multiple)</label>
+                  <div className="max-h-40 overflow-y-auto bg-slate-950 border border-slate-800 rounded-2xl p-3 grid grid-cols-2 gap-2">
+                    {state.config.users.map(u => (
+                      <label key={u.id} className={`flex items-center gap-2 p-2 rounded-xl border transition-all cursor-pointer ${taskData.selectedUserIds.includes(u.id) ? 'bg-indigo-600/20 border-indigo-500' : 'bg-slate-900/50 border-slate-800 hover:border-slate-700'}`}>
+                        <input 
+                          type="checkbox"
+                          checked={taskData.selectedUserIds.includes(u.id)}
+                          onChange={() => {
+                            const newIds = taskData.selectedUserIds.includes(u.id) 
+                              ? taskData.selectedUserIds.filter(id => id !== u.id)
+                              : [...taskData.selectedUserIds, u.id];
+                            setTaskData({...taskData, selectedUserIds: newIds});
+                          }}
+                          className="sr-only"
+                        />
+                        <div className={`w-3 h-3 rounded-full border ${taskData.selectedUserIds.includes(u.id) ? 'bg-white border-transparent' : 'border-slate-700'}`}></div>
+                        <span className="text-[10px] font-bold text-white truncate">{u.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Priority Flag</label>
+                    <div className="flex gap-2">
+                       {['low', 'medium', 'high'].map((p) => (
+                         <button 
+                           key={p}
+                           type="button"
+                           onClick={() => setTaskData({...taskData, priority: p as TaskPriority})}
+                           className={`flex-1 py-2 text-[8px] font-black uppercase rounded-lg border transition-all ${taskData.priority === p ? 
+                             (p === 'high' ? 'bg-rose-600 border-rose-500 text-white shadow-lg shadow-rose-600/20' : 
+                              p === 'medium' ? 'bg-amber-600 border-amber-500 text-white shadow-lg shadow-amber-600/20' : 
+                              'bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-600/20') : 
+                             'bg-slate-950 border-slate-800 text-slate-500'}`}
+                         >
+                           {p}
+                         </button>
+                       ))}
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Allocated Minutes</label>
+                    <input 
+                      type="number"
+                      value={taskData.allocatedTime}
+                      onChange={e => setTaskData({...taskData, allocatedTime: e.target.value})}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                   <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-4 rounded-2xl uppercase tracking-widest text-xs transition-all shadow-xl active:scale-[0.98] flex items-center justify-center gap-3">
+                     <Send size={16} /> Broadcast Task to {taskData.selectedUserIds.length} Nodes
+                   </button>
+                </div>
+              </div>
+           </form>
+        </div>
+
         {/* Database Configuration */}
         <div className="bg-slate-900/40 rounded-[2.5rem] p-8 border border-slate-800 backdrop-blur-md shadow-2xl">
           <div className="flex justify-between items-center mb-8">
@@ -467,42 +629,6 @@ function getValue(sheet, key) {
             </tbody>
           </table>
         </div>
-      </div>
-
-      {/* Cloud Engine Template */}
-      <div className="bg-slate-900/40 rounded-[2.5rem] p-8 border border-slate-800 transition-all">
-        <div className="flex justify-between items-center mb-6">
-          <div className="space-y-1">
-            <h3 className="text-lg font-bold flex items-center gap-2.5 text-white">
-              <Code size={20} className="text-indigo-400" /> Multi-Sheet Cloud Engine (v10)
-            </h3>
-            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Paste this code into Google Apps Script for isolated user sheets.</p>
-          </div>
-          <button 
-            onClick={() => {
-              navigator.clipboard.writeText(GAS_TEMPLATE);
-              alert("Backend script copied!");
-              setShowScript(true);
-            }} 
-            className="px-4 py-2 bg-indigo-600/10 hover:bg-indigo-600 text-indigo-400 hover:text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-indigo-500/20"
-          >
-            Copy Engine Script
-          </button>
-        </div>
-        <div className="bg-amber-500/5 border border-amber-500/10 p-5 rounded-2xl mb-6">
-          <p className="text-[11px] text-amber-200/80 leading-relaxed font-medium">
-            <span className="font-black text-amber-400">ISOLATION POLICY:</span> Version 10 creates a separate sheet for every user. 
-            Ensure "Execute as Me" and "Access Anyone" are selected during deployment.
-          </p>
-        </div>
-        <button onClick={() => setShowScript(!showScript)} className="text-xs text-indigo-400 font-bold hover:underline mb-4">
-          {showScript ? 'Hide Cloud Logic' : 'View Code Breakdown'}
-        </button>
-        {showScript && (
-          <pre className="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-[10px] font-mono text-indigo-300 overflow-x-auto whitespace-pre">
-            {GAS_TEMPLATE}
-          </pre>
-        )}
       </div>
     </div>
   );

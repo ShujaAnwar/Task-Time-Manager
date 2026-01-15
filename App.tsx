@@ -15,7 +15,7 @@ import {
   Palette, 
   Check
 } from 'lucide-react';
-import { DayLog, AppState, UserProfile, ThemeType } from './types';
+import { DayLog, AppState, UserProfile, ThemeType, Task, TaskPriority } from './types';
 import { getTodayStr } from './utils/time';
 import AttendancePanel from './components/AttendancePanel';
 import TaskPanel from './components/TaskPanel';
@@ -211,6 +211,19 @@ const App: React.FC = () => {
     });
   };
 
+  const assignTask = (userIds: string[], date: string, task: Task) => {
+    if (!isAdmin || !state.currentUser) return;
+    setState(prev => {
+      const userLogs = { ...prev.userLogs };
+      userIds.forEach(uId => {
+        if (!userLogs[uId]) userLogs[uId] = {};
+        if (!userLogs[uId][date]) userLogs[uId][date] = { date, tasks: [] };
+        userLogs[uId][date].tasks = [task, ...userLogs[uId][date].tasks];
+      });
+      return { ...prev, userLogs };
+    });
+  };
+
   const triggerManualSync = async (specialAction?: string, extraData?: any) => {
     if (!state.config.sheetUrl || !state.currentUser) return;
     setSyncStatus('syncing');
@@ -382,10 +395,10 @@ const App: React.FC = () => {
                 </div>
               )}
               {activeTab === 'attendance' && <AttendancePanel log={todayLog} config={state.config} onUpdate={updateTodayLog} logs={currentUserLogs} state={state} isFullWidth />}
-              {activeTab === 'tasks' && <TaskPanel log={todayLog} onUpdate={updateTodayLog} historicalLogs={currentUserLogs} isFullWidth />}
+              {activeTab === 'tasks' && <TaskPanel log={todayLog} onUpdate={updateTodayLog} historicalLogs={currentUserLogs} isFullWidth userRole={state.currentUser?.role} currentUserId={state.currentUser?.id} />}
               {activeTab === 'reports' && <ReportsPanel state={state} isFullWidth />}
               {activeTab === 'activity' && isAdmin && <UserActivityPanel state={state} />}
-              {activeTab === 'admin' && isAdmin && <AdminPanel state={state} updateConfig={updateConfig} restoreFullState={restoreFullState} triggerManualSync={triggerManualSync} />}
+              {activeTab === 'admin' && isAdmin && <AdminPanel state={state} updateConfig={updateConfig} restoreFullState={restoreFullState} triggerManualSync={triggerManualSync} onAssignTask={assignTask} />}
             </>
           )}
         </div>
