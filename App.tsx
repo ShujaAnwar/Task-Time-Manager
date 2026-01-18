@@ -15,7 +15,8 @@ import {
   Palette, 
   Check,
   Target,
-  Zap
+  Zap,
+  Sparkles
 } from 'lucide-react';
 import { DayLog, AppState, UserProfile, ThemeType, Task, TaskPriority } from './types';
 import { getTodayStr, diffMinutes } from './utils/time';
@@ -27,6 +28,7 @@ import InsightsPanel from './components/InsightsPanel';
 import LoginForm from './components/LoginForm';
 import AdminPanel from './components/AdminPanel';
 import UserActivityPanel from './components/UserActivityPanel';
+import AIAssistant from './components/AIAssistant';
 
 const DEFAULT_ADMIN: UserProfile = {
   id: "ADMIN",
@@ -138,13 +140,58 @@ const App: React.FC = () => {
     return INITIAL_STATE;
   });
   
-  const [activeTab, setActiveTab] = useState<'overview' | 'attendance' | 'tasks' | 'reports' | 'admin' | 'activity'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'attendance' | 'tasks' | 'reports' | 'admin' | 'activity' | 'nexus'>('overview');
   const [currentTime, setCurrentTime] = useState(new Date());
   const [syncStatus, setSyncStatus] = useState<'idle' | 'hydrating' | 'syncing' | 'connected' | 'error'>('idle');
   const [isHydrated, setIsHydrated] = useState(false);
   const [showThemeGallery, setShowThemeGallery] = useState(false);
 
   const isAdmin = state.currentUser?.role === 'admin';
+
+  const getCarriedTasks = useCallback((logs: Record<string, DayLog>): Task[] => {
+    const todayStr = getTodayStr();
+    const carried: Task[] = [];
+    const taskIds = new Set<string>();
+
+    // Scan ALL historical logs for pending tasks
+    Object.keys(logs).forEach(date => {
+      if (date === todayStr) return;
+      logs[date].tasks.forEach(t => {
+        if (t.status === 'pending' && !taskIds.has(t.id)) {
+          carried.push({
+            ...t,
+            timerStartedAt: undefined, // Reset timer for the new day
+            updatedAt: Date.now()
+          });
+          taskIds.add(t.id);
+        }
+      });
+    });
+    return carried;
+  }, []);
+
+  useEffect(() => {
+    if (!state.isAuthenticated || !state.currentUser || !isHydrated) return;
+
+    const todayStr = getTodayStr();
+    const userId = state.currentUser.id;
+    const userLogs = state.userLogs[userId] || {};
+
+    if (!userLogs[todayStr]) {
+      const pendingTasks = getCarriedTasks(userLogs);
+      if (pendingTasks.length > 0) {
+        setState(prev => {
+          const newUserLogs = { ...prev.userLogs };
+          if (!newUserLogs[userId]) newUserLogs[userId] = {};
+          newUserLogs[userId][todayStr] = {
+            date: todayStr,
+            tasks: pendingTasks
+          };
+          return { ...prev, userLogs: newUserLogs };
+        });
+      }
+    }
+  }, [state.isAuthenticated, state.currentUser?.id, isHydrated, getCarriedTasks]);
 
   const loadFromCloud = useCallback(async (isSilent = false) => {
     if (!state.config.sheetUrl || !state.isAuthenticated || !state.currentUser) return;
@@ -161,28 +208,25 @@ const App: React.FC = () => {
           if (cloudData.userLogs) {
             Object.entries(cloudData.userLogs).forEach(([uId, cloudDays]) => {
               if (!isAdmin && uId !== state.currentUser!.id) return;
-              
               if (!updatedUserLogs[uId]) updatedUserLogs[uId] = {};
-              
               Object.entries(cloudDays as Record<string, DayLog>).forEach(([date, cloudDay]) => {
                 const localDay = updatedUserLogs[uId][date];
                 if (!localDay) {
                   updatedUserLogs[uId][date] = cloudDay;
                   return;
                 }
-
-                const mergedTasks = cloudDay.tasks.map(cloudTask => {
-                  const localTask = localDay.tasks.find(t => t.id === cloudTask.id);
-                  if (localTask && localTask.timerStartedAt && cloudTask.status === 'pending') {
-                    return { ...cloudTask, timerStartedAt: localTask.timerStartedAt };
-                  }
-                  return cloudTask;
+                const mergedTasks = [...cloudDay.tasks];
+                localDay.tasks.forEach(localTask => {
+                   const index = mergedTasks.findIndex(t => t.id === localTask.id);
+                   if (index !== -1) {
+                      if (localTask.timerStartedAt && mergedTasks[index].status === 'pending') {
+                         mergedTasks[index] = { ...mergedTasks[index], timerStartedAt: localTask.timerStartedAt };
+                      }
+                   } else {
+                      mergedTasks.push(localTask);
+                   }
                 });
-
-                updatedUserLogs[uId][date] = {
-                  ...cloudDay,
-                  tasks: mergedTasks
-                };
+                updatedUserLogs[uId][date] = { ...cloudDay, tasks: mergedTasks };
               });
             });
           }
@@ -210,7 +254,6 @@ const App: React.FC = () => {
   const saveToCloud = useCallback(async (isImmediate = false) => {
     if (!state.config.sheetUrl || !state.isAuthenticated || !state.currentUser || !isHydrated) return;
     if (!isImmediate) setSyncStatus('syncing');
-    
     try {
       const payload = {
         action: 'SYNC_DATA',
@@ -221,12 +264,7 @@ const App: React.FC = () => {
         config: state.config,
         lastUpdated: new Date().toISOString()
       };
-      
-      await fetch(state.config.sheetUrl, {
-        method: 'POST',
-        mode: 'no-cors',
-        body: JSON.stringify(payload)
-      });
+      await fetch(state.config.sheetUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
       setSyncStatus('connected');
     } catch (err) {
       setSyncStatus('error');
@@ -240,12 +278,8 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    // Increased refresh frequency for admins to capture real-time updates across the workforce
     const cloudTimer = setInterval(() => loadFromCloud(true), isAdmin ? 10000 : 30000);
-    return () => {
-      clearInterval(timer);
-      clearInterval(cloudTimer);
-    };
+    return () => { clearInterval(timer); clearInterval(cloudTimer); };
   }, [loadFromCloud, isAdmin]);
 
   useEffect(() => {
@@ -260,9 +294,7 @@ const App: React.FC = () => {
       (u.id.toUpperCase() === userId.toUpperCase() || u.name.toUpperCase() === userId.toUpperCase()) && 
       u.password === password
     );
-
     let user = findUser(state.config.users);
-
     if (!user) {
       try {
         const response = await fetch(`${BUILTIN_SHEET_URL}?action=GET_CONFIG&t=${Date.now()}`);
@@ -270,45 +302,22 @@ const App: React.FC = () => {
           const cloudData = await response.json();
           if (cloudData.config && cloudData.config.users) {
             user = findUser(cloudData.config.users);
-            if (user) {
-              setState(prev => ({
-                ...prev,
-                config: { ...prev.config, users: cloudData.config.users }
-              }));
-            }
+            if (user) setState(prev => ({ ...prev, config: { ...prev.config, users: cloudData.config.users } }));
           }
         }
-      } catch (err) {
-        console.error("Cloud identity lookup failed", err);
-      }
+      } catch (err) { console.error("Cloud identity lookup failed", err); }
     }
-
     if (user) {
-      if (user.status === 'inactive') {
-        alert("Authentication Error: Account is currently inactive. Contact Admin.");
-        return false;
-      }
+      if (user.status === 'inactive') { alert("Authentication Error: Account is currently inactive. Contact Admin."); return false; }
       setIsHydrated(false);
-      setState(prev => ({ 
-        ...prev, 
-        isAuthenticated: true, 
-        rememberMe: remember,
-        currentUser: user
-      }));
+      setState(prev => ({ ...prev, isAuthenticated: true, rememberMe: remember, currentUser: user }));
       return true;
     }
     return false;
   };
 
-  const handleLogout = () => {
-    setState(prev => ({ ...prev, isAuthenticated: false, currentUser: undefined }));
-    setIsHydrated(false);
-  };
-
-  const updateConfig = (newConfig: Partial<AppState['config']>) => {
-    setState(prev => ({ ...prev, config: { ...prev.config, ...newConfig } }));
-  };
-
+  const handleLogout = () => { setState(prev => ({ ...prev, isAuthenticated: false, currentUser: undefined })); setIsHydrated(false); };
+  const updateConfig = (newConfig: Partial<AppState['config']>) => { setState(prev => ({ ...prev, config: { ...prev.config, ...newConfig } })); };
   const updateTodayLog = (updater: (prev: DayLog) => DayLog) => {
     if (!state.currentUser) return;
     const todayStr = getTodayStr();
@@ -316,7 +325,11 @@ const App: React.FC = () => {
     setState(prev => {
       const userLogs = { ...prev.userLogs };
       if (!userLogs[userId]) userLogs[userId] = {};
-      const currentDayLog = userLogs[userId][todayStr] || { date: todayStr, tasks: [] };
+      if (!userLogs[userId][todayStr]) {
+        const carried = getCarriedTasks(userLogs[userId]);
+        userLogs[userId][todayStr] = { date: todayStr, tasks: carried };
+      }
+      const currentDayLog = userLogs[userId][todayStr];
       userLogs[userId][todayStr] = updater(currentDayLog);
       return { ...prev, userLogs };
     });
@@ -324,7 +337,6 @@ const App: React.FC = () => {
 
   const assignTask = async (userIds: string[], date: string, task: Task) => {
     if (!isAdmin || !state.currentUser) return;
-    
     setState(prev => {
       const userLogs = { ...prev.userLogs };
       userIds.forEach(uId => {
@@ -334,7 +346,6 @@ const App: React.FC = () => {
       });
       return { ...prev, userLogs };
     });
-
     setTimeout(() => saveToCloud(true), 100);
   };
 
@@ -351,8 +362,6 @@ const App: React.FC = () => {
         config: state.config,
         ...extraData
       };
-      
-      // Ensure we immediately update local config for PROVISION_USER to show them in lists
       if (specialAction === 'PROVISION_USER' && extraData?.targetUser) {
           const newUser = extraData.targetUser;
           setState(prev => {
@@ -364,38 +373,28 @@ const App: React.FC = () => {
             return { ...prev, config: { ...prev.config, users }, userLogs };
           });
       }
-
-      await fetch(state.config.sheetUrl, {
-        method: 'POST',
-        mode: 'no-cors',
-        body: JSON.stringify(payload)
-      });
-      
+      await fetch(state.config.sheetUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
       setSyncStatus('connected');
-      
-      // Immediate force pull to confirm cloud creation and fetch any initial server-side data
       setTimeout(() => loadFromCloud(true), 500);
-      
-    } catch (e) {
-      setSyncStatus('error');
-    }
+    } catch (e) { setSyncStatus('error'); }
   };
 
-  const restoreFullState = (newState: Partial<AppState>) => {
-    setState(prev => ({ ...prev, ...newState, isAuthenticated: true }));
-    setIsHydrated(true);
-  };
+  const restoreFullState = (newState: Partial<AppState>) => { setState(prev => ({ ...prev, ...newState, isAuthenticated: true })); setIsHydrated(true); };
 
-  if (!state.isAuthenticated) {
-    return <LoginForm onLogin={handleLogin} defaultUserId="" />;
-  }
+  if (!state.isAuthenticated) return <LoginForm onLogin={handleLogin} defaultUserId="" />;
 
   const todayStr = getTodayStr();
   const currentUserLogs = state.userLogs[state.currentUser!.id] || {};
-  const todayLog: DayLog = currentUserLogs[todayStr] || { date: todayStr, tasks: [] };
+  const todayLog: DayLog = useMemo(() => {
+     const log = currentUserLogs[todayStr];
+     if (log) return log;
+     const carried = getCarriedTasks(currentUserLogs);
+     return { date: todayStr, tasks: carried };
+  }, [currentUserLogs, todayStr, getCarriedTasks]);
 
   const navItems = [
     { id: 'overview', icon: LayoutDashboard, label: 'Dash' },
+    { id: 'nexus', icon: Sparkles, label: 'Nexus AI' },
     { id: 'attendance', icon: Clock, label: 'Clock' },
     { id: 'tasks', icon: CheckSquare, label: 'Tasks' },
     { id: 'reports', icon: FileText, label: 'Audits' },
@@ -406,9 +405,7 @@ const App: React.FC = () => {
   ];
 
   const totalActualMins = todayLog.tasks.reduce((sum, t) => {
-    const elapsed = t.status === 'pending' && t.timerStartedAt 
-      ? Math.floor((Date.now() - t.timerStartedAt) / 60000) 
-      : 0;
+    const elapsed = t.status === 'pending' && t.timerStartedAt ? Math.floor((Date.now() - t.timerStartedAt) / 60000) : 0;
     return sum + t.actualDuration + elapsed;
   }, 0);
 
@@ -439,7 +436,7 @@ const App: React.FC = () => {
               }`}
             >
               <item.icon size={22} strokeWidth={activeTab === item.id ? 2.5 : 2} />
-              <span className="text-xs uppercase tracking-widest">{item.label === 'Dash' ? 'Dashboard' : item.label}</span>
+              <span className="text-xs uppercase tracking-widest">{item.label}</span>
             </button>
           ))}
         </nav>
@@ -492,12 +489,7 @@ const App: React.FC = () => {
               </span>
             </div>
             
-            <button 
-              onClick={() => setShowThemeGallery(!showThemeGallery)}
-              className="p-2.5 rounded-2xl border border-slate-800/30 bg-black/20 hover:bg-theme-primary/10 hover:border-theme-primary/50 transition-all text-slate-400"
-            >
-              <Palette size={20} />
-            </button>
+            <button onClick={() => setShowThemeGallery(!showThemeGallery)} className="p-2.5 rounded-2xl border border-slate-800/30 bg-black/20 hover:bg-theme-primary/10 hover:border-theme-primary/50 transition-all text-slate-400"><Palette size={20} /></button>
             
             {showThemeGallery && (
               <div className="absolute right-0 mt-4 top-full w-72 p-6 rounded-[2.5rem] glass-panel border shadow-[0_20px_50px_rgba(0,0,0,0.5)] z-50 animate-in fade-in zoom-in-95 duration-300">
@@ -511,15 +503,9 @@ const App: React.FC = () => {
                     { id: 'nordic', label: 'Nordic', color: 'bg-sky-400' },
                     { id: 'light', label: 'Light', color: 'bg-slate-100 border border-slate-300' }
                   ].map(t => (
-                    <button 
-                      key={t.id}
-                      onClick={() => { setState(p => ({...p, theme: t.id as ThemeType})); setShowThemeGallery(false); }}
-                      className={`flex flex-col items-center gap-3 p-4 rounded-3xl transition-all border ${state.theme === t.id ? 'border-theme-primary bg-theme-primary/10 shadow-lg' : 'border-slate-800/20 bg-slate-950/40 hover:border-slate-700'}`}
-                    >
+                    <button key={t.id} onClick={() => { setState(p => ({...p, theme: t.id as ThemeType})); setShowThemeGallery(false); }} className={`flex flex-col items-center gap-3 p-4 rounded-3xl transition-all border ${state.theme === t.id ? 'border-theme-primary bg-theme-primary/10 shadow-lg' : 'border-slate-800/20 bg-slate-950/40 hover:border-slate-700'}`}>
                       <div className={`w-10 h-10 rounded-xl shadow-inner ${t.color}`} />
-                      <span className="text-[9px] font-black uppercase tracking-tighter opacity-80">
-                        {t.label}
-                      </span>
+                      <span className="text-[9px] font-black uppercase tracking-tighter opacity-80">{t.label}</span>
                     </button>
                   ))}
                 </div>
@@ -540,12 +526,8 @@ const App: React.FC = () => {
                 <div className="space-y-8 animate-in fade-in duration-1000">
                   <DashboardSummary tasks={todayLog.tasks} totalMins={totalActualMins} />
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                    <div className="lg:col-span-8">
-                       <AnalysisPanel log={todayLog} config={state.config} currentTime={currentTime} />
-                    </div>
-                    <div className="lg:col-span-4">
-                       <InsightsPanel log={todayLog} logs={currentUserLogs} config={state.config} currentTime={currentTime} />
-                    </div>
+                    <div className="lg:col-span-8"><AnalysisPanel log={todayLog} config={state.config} currentTime={currentTime} /></div>
+                    <div className="lg:col-span-4"><InsightsPanel log={todayLog} logs={currentUserLogs} config={state.config} currentTime={currentTime} /></div>
                   </div>
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[700px]">
                     <TaskPanel log={todayLog} onUpdate={updateTodayLog} historicalLogs={currentUserLogs} userRole={state.currentUser?.role} currentUserId={state.currentUser?.id} />
@@ -553,6 +535,7 @@ const App: React.FC = () => {
                   </div>
                 </div>
               )}
+              {activeTab === 'nexus' && <div className="animate-in fade-in duration-700"><AIAssistant state={state} /></div>}
               {activeTab === 'attendance' && <div className="animate-in fade-in duration-700"><AttendancePanel log={todayLog} config={state.config} onUpdate={updateTodayLog} logs={currentUserLogs} state={state} isFullWidth /></div>}
               {activeTab === 'tasks' && <div className="animate-in fade-in duration-700"><TaskPanel log={todayLog} onUpdate={updateTodayLog} historicalLogs={currentUserLogs} isFullWidth userRole={state.currentUser?.role} currentUserId={state.currentUser?.id} /></div>}
               {activeTab === 'reports' && <div className="animate-in fade-in duration-700"><ReportsPanel state={state} isFullWidth /></div>}
@@ -564,14 +547,8 @@ const App: React.FC = () => {
       </main>
 
       <nav className="md:hidden fixed bottom-6 left-6 right-6 h-20 glass-panel rounded-[2.5rem] flex items-center justify-around px-8 z-50 no-print shadow-[0_15px_50px_rgba(0,0,0,0.6)] border-opacity-30">
-        {navItems.map(item => (
-          <button
-            key={item.id}
-            onClick={() => setActiveTab(item.id as any)}
-            className={`flex flex-col items-center gap-1.5 transition-all duration-300 ${
-              activeTab === item.id ? 'text-theme-primary scale-110' : 'text-slate-500 hover:text-slate-300'
-            }`}
-          >
+        {navItems.slice(0, 5).map(item => (
+          <button key={item.id} onClick={() => setActiveTab(item.id as any)} className={`flex flex-col items-center gap-1.5 transition-all duration-300 ${activeTab === item.id ? 'text-theme-primary scale-110' : 'text-slate-500 hover:text-slate-300'}`}>
             <item.icon size={22} strokeWidth={activeTab === item.id ? 3 : 2} />
             <span className="text-[8px] font-black uppercase tracking-widest">{item.label}</span>
           </button>
