@@ -2,26 +2,23 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   CheckSquare, 
-  Plus, 
-  Clock, 
   Trash2, 
-  Layers,
-  Play,
-  Pause,
-  Timer,
-  Check,
-  Edit3,
-  ShieldAlert,
-  Target,
-  RotateCcw,
-  Circle,
-  History,
-  Eye,
+  Play, 
+  Pause, 
+  Timer, 
+  Check, 
+  ShieldAlert, 
+  Target, 
+  RotateCcw, 
+  Circle, 
+  History, 
+  Eye, 
   EyeOff,
-  Filter
+  Layers,
+  CalendarDays
 } from 'lucide-react';
 import { DayLog, Task, TaskPriority } from '../types';
-import { diffMinutes, formatMinutesToDisplay, getTodayStr } from '../utils/time';
+import { formatMinutesToDisplay, getTodayStr } from '../utils/time';
 
 interface Props {
   log: DayLog;
@@ -30,9 +27,10 @@ interface Props {
   isFullWidth?: boolean;
   userRole?: 'admin' | 'user';
   currentUserId?: string;
+  onDirectUpdate?: (date: string, updater: (prev: DayLog) => DayLog) => void;
 }
 
-const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth, userRole, currentUserId }) => {
+const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth, userRole, currentUserId, onDirectUpdate }) => {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -41,7 +39,7 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
     priority: 'low' as TaskPriority,
     dueDate: getTodayStr()
   });
-  const [showArchive, setShowArchive] = useState(false);
+  const [showArchive, setShowArchive] = useState(true);
   const [, setTick] = useState(0);
 
   useEffect(() => {
@@ -49,36 +47,47 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
     return () => clearInterval(interval);
   }, []);
 
-  // MASTER TASK AGGREGATOR
-  const taskGroups = useMemo(() => {
+  // MASTER TASK AGGREGATOR - Unified History & Today
+  const masterList = useMemo(() => {
     const todayStr = getTodayStr();
-    const active: Array<{task: Task, sourceDate: string}> = [];
-    const archived: Array<{task: Task, sourceDate: string}> = [];
+    const allTasks: Array<{task: Task, sourceDate: string}> = [];
     const seenIds = new Set<string>();
 
-    // 1. Process Today's Log
-    log.tasks.forEach(t => {
-      if (t.status === 'pending') active.push({ task: t, sourceDate: todayStr });
-      else archived.push({ task: t, sourceDate: todayStr });
-      seenIds.add(t.id);
-    });
-
-    // 2. Process Historical Logs
-    Object.keys(historicalLogs).forEach(date => {
-      if (date === todayStr) return;
-      historicalLogs[date].tasks.forEach(t => {
-        if (seenIds.has(t.id)) return;
-        if (t.status === 'pending') active.push({ task: t, sourceDate: date });
-        else archived.push({ task: t, sourceDate: date });
-        seenIds.add(t.id);
+    // Process everything from all dates in history
+    const dates = Object.keys(historicalLogs).sort((a, b) => b.localeCompare(a));
+    
+    dates.forEach(date => {
+      const dayTasks = historicalLogs[date]?.tasks || [];
+      dayTasks.forEach(t => {
+        if (!seenIds.has(t.id)) {
+          allTasks.push({ task: t, sourceDate: date });
+          seenIds.add(t.id);
+        }
       });
     });
 
-    return {
-      active: active.sort((a, b) => b.task.createdAt - a.task.createdAt),
-      archived: archived.sort((a, b) => b.task.createdAt - a.task.createdAt)
-    };
-  }, [log, historicalLogs]);
+    // Ensure today's local state tasks are also included (redundancy check)
+    log.tasks.forEach(t => {
+      if (!seenIds.has(t.id)) {
+        allTasks.push({ task: t, sourceDate: todayStr });
+        seenIds.add(t.id);
+      }
+    });
+
+    // Sort: All PENDING first (Priority then Creation), then COMPLETED (Newest first)
+    return allTasks.sort((a, b) => {
+      if (a.task.status === b.task.status) {
+        if (a.task.status === 'pending') {
+          const pMap = { high: 3, medium: 2, low: 1 };
+          const pDiff = (pMap[b.task.priority] || 0) - (pMap[a.task.priority] || 0);
+          if (pDiff !== 0) return pDiff;
+          return b.task.createdAt - a.task.createdAt;
+        }
+        return b.task.updatedAt - a.task.updatedAt;
+      }
+      return a.task.status === 'pending' ? -1 : 1;
+    });
+  }, [historicalLogs, log]);
 
   const addTask = () => {
     if (!formData.title) return;
@@ -112,34 +121,23 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
     });
   };
 
-  const updateTaskStatus = (id: string, sourceDate: string, updater: (t: Task) => Task) => {
-    const todayStr = getTodayStr();
-    
-    // If updating a task from TODAY
-    if (sourceDate === todayStr) {
-      onUpdate(prev => ({
+  const performTaskUpdate = (id: string, sourceDate: string, updater: (t: Task) => Task) => {
+    if (onDirectUpdate) {
+      onDirectUpdate(sourceDate, prev => ({
         ...prev,
         tasks: prev.tasks.map(t => t.id === id ? updater(t) : t)
       }));
     } else {
-      // If updating a task from the BACKLOG (historical)
-      // We move it to TODAY's log so it appears in the current performance metrics
-      onUpdate(prev => {
-        const historicalTask = taskGroups.active.find(g => g.task.id === id)?.task;
-        if (!historicalTask) return prev;
-        
-        const updated = updater(historicalTask);
-        return {
-          ...prev,
-          tasks: [updated, ...prev.tasks]
-        };
-      });
+      onUpdate(prev => ({
+        ...prev,
+        tasks: prev.tasks.map(t => t.id === id ? updater(t) : t)
+      }));
     }
   };
 
-  const startTask = (id: string, date: string) => updateTaskStatus(id, date, t => ({ ...t, timerStartedAt: Date.now(), updatedAt: Date.now() }));
+  const startTask = (id: string, date: string) => performTaskUpdate(id, date, t => ({ ...t, timerStartedAt: Date.now(), updatedAt: Date.now() }));
   
-  const pauseTask = (id: string, date: string) => updateTaskStatus(id, date, t => {
+  const pauseTask = (id: string, date: string) => performTaskUpdate(id, date, t => {
     if (t.timerStartedAt) {
       const elapsed = Math.floor((Date.now() - t.timerStartedAt) / 60000);
       return { ...t, actualDuration: t.actualDuration + elapsed, timerStartedAt: undefined, updatedAt: Date.now() };
@@ -147,7 +145,7 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
     return t;
   });
 
-  const completeTask = (id: string, date: string) => updateTaskStatus(id, date, t => {
+  const completeTask = (id: string, date: string) => performTaskUpdate(id, date, t => {
     let finalActual = t.actualDuration;
     if (t.timerStartedAt) {
       finalActual += Math.floor((Date.now() - t.timerStartedAt) / 60000);
@@ -155,17 +153,19 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
     return { ...t, status: 'completed', actualDuration: finalActual, timerStartedAt: undefined, updatedAt: Date.now() };
   });
 
-  const resumeTask = (id: string, date: string) => updateTaskStatus(id, date, t => ({ ...t, status: 'pending', timerStartedAt: undefined, updatedAt: Date.now() }));
+  const resumeTask = (id: string, date: string) => performTaskUpdate(id, date, t => ({ ...t, status: 'pending', timerStartedAt: undefined, updatedAt: Date.now() }));
 
   const removeTask = (id: string, date: string) => {
-    if (userRole === 'user') {
-      const taskObj = taskGroups.active.find(g => g.task.id === id)?.task || taskGroups.archived.find(g => g.task.id === id)?.task;
-      if (taskObj?.assignedBy && taskObj.assignedBy !== currentUserId) {
-        alert("Policy Restriction: Administrator-assigned tasks cannot be removed.");
-        return;
-      }
+    const taskObj = masterList.find(item => item.task.id === id)?.task;
+    if (userRole === 'user' && taskObj?.assignedBy && taskObj.assignedBy !== currentUserId) {
+      alert("Policy Restriction: Administrator-assigned tasks cannot be removed.");
+      return;
     }
-    onUpdate(prev => ({ ...prev, tasks: prev.tasks.filter(t => t.id !== id) }));
+    if (onDirectUpdate) {
+      onDirectUpdate(date, prev => ({ ...prev, tasks: prev.tasks.filter(t => t.id !== id) }));
+    } else {
+      onUpdate(prev => ({ ...prev, tasks: prev.tasks.filter(t => t.id !== id) }));
+    }
   };
 
   const priorityMeta = {
@@ -195,12 +195,14 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
               <h4 className={`text-xs font-bold truncate tracking-tight ${isCompleted ? 'text-slate-600 line-through' : 'text-slate-200'}`}>{task.title}</h4>
               {isAdmin && <ShieldAlert size={10} className="text-theme-primary shrink-0" />}
               {isHistorical && !isCompleted && (
-                <span className="text-[7px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1.5 py-0.5 rounded-full font-black uppercase tracking-widest">Backlog</span>
+                <span className="text-[7px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1.5 py-0.5 rounded-full font-black uppercase tracking-widest flex items-center gap-1">
+                  <CalendarDays size={8} /> {sourceDate}
+                </span>
               )}
             </div>
             <div className="flex items-center gap-2 mt-0.5">
                <span className={`text-[8px] font-black uppercase tracking-tighter ${meta.color}`}>{task.priority}</span>
-               <span className="text-[8px] text-slate-600 font-bold uppercase">• {isHistorical ? `Created ${sourceDate}` : 'Today'}</span>
+               <span className="text-[8px] text-slate-600 font-bold uppercase">• {isHistorical ? `Historical` : 'Current Cycle'}</span>
             </div>
           </div>
         </div>
@@ -210,7 +212,7 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
             <span className={`text-[11px] font-black tabular-nums ${isCompleted ? 'text-emerald-500' : 'text-theme-primary'}`}>
               {progress}%
             </span>
-            <span className="text-[7px] text-slate-600 uppercase font-black tracking-widest">Progress</span>
+            <span className="text-[7px] text-slate-600 uppercase font-black tracking-widest">Efficiency</span>
           </div>
           <div className="flex flex-col items-end">
             <span className="text-[10px] font-bold text-slate-400 tabular-nums">{formatMinutesToDisplay(currentTotal)}</span>
@@ -225,7 +227,7 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
                 ) : (
                   <button onClick={() => pauseTask(task.id, sourceDate)} className="p-2 bg-amber-500/10 text-amber-500 rounded-lg hover:bg-amber-500 hover:text-white transition-all"><Pause size={12} fill="currentColor" /></button>
                 )}
-                <button onClick={() => completeTask(task.id, sourceDate)} className="p-2 bg-emerald-500/10 text-emerald-500 rounded-lg hover:bg-emerald-500 hover:text-white transition-all" title="Complete Module"><Check size={12} strokeWidth={3} /></button>
+                <button onClick={() => completeTask(task.id, sourceDate)} className="p-2 bg-emerald-500/10 text-emerald-500 rounded-lg hover:bg-emerald-500 hover:text-white transition-all" title="Verify & Close"><Check size={12} strokeWidth={3} /></button>
               </>
             ) : (
               <button onClick={() => resumeTask(task.id, sourceDate)} className="p-2 bg-slate-800 text-slate-400 rounded-lg hover:text-white transition-all"><RotateCcw size={12} /></button>
@@ -237,6 +239,9 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
     );
   };
 
+  const pendingTasks = masterList.filter(i => i.task.status === 'pending');
+  const completedTasks = masterList.filter(i => i.task.status === 'completed');
+
   return (
     <div className={`glass-panel border rounded-[2rem] p-4 md:p-6 backdrop-blur-md shadow-2xl flex flex-col ${isFullWidth ? 'min-h-[85vh]' : 'h-full max-h-full overflow-hidden'}`}>
       <div className="flex items-center justify-between mb-4 shrink-0 px-2">
@@ -244,20 +249,20 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
           <div className="p-2 bg-theme-primary/20 text-theme-primary rounded-xl">
             <CheckSquare size={18} strokeWidth={2.5} />
           </div>
-          <h3 className="text-sm font-black text-white uppercase tracking-wider">Master Task Hub</h3>
+          <h3 className="text-sm font-black text-white uppercase tracking-wider">Master Unified Board</h3>
         </div>
         <button 
           onClick={() => setShowArchive(!showArchive)}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${showArchive ? 'bg-theme-primary text-white' : 'bg-slate-950/60 text-slate-500 border border-slate-800'}`}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${showArchive ? 'bg-theme-primary text-white shadow-lg' : 'bg-slate-950/60 text-slate-500 border border-slate-800'}`}
         >
-          {showArchive ? <EyeOff size={12}/> : <History size={12}/>}
-          {showArchive ? 'Hide Archive' : 'View All History'}
+          {showArchive ? <Eye size={12}/> : <EyeOff size={12}/>}
+          {showArchive ? 'Full Board' : 'Pending Only'}
         </button>
       </div>
 
       <div className="mb-4 p-3 glass-card rounded-2xl border-slate-800/50 shrink-0 space-y-3">
         <div className="flex flex-col md:flex-row gap-2">
-          <input type="text" placeholder="New Objective..." className="flex-1 bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-2 text-xs text-white outline-none focus:border-theme-primary" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} />
+          <input type="text" placeholder="Specify New Objective..." className="flex-1 bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-2 text-xs text-white outline-none focus:border-theme-primary" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} />
           <div className="flex gap-2">
              <div className="flex items-center bg-slate-950 border border-slate-800 rounded-xl px-2">
                 <input type="number" min="0" value={formData.allocHours} onChange={e => setFormData({...formData, allocHours: e.target.value})} className="w-8 bg-transparent text-[10px] text-white text-center outline-none" placeholder="H" />
@@ -269,37 +274,37 @@ const TaskPanel: React.FC<Props> = ({ log, onUpdate, historicalLogs, isFullWidth
                 <option value="medium">Med</option>
                 <option value="high">High</option>
              </select>
-             <button onClick={addTask} className="bg-theme-primary px-4 py-2 rounded-xl text-white text-[10px] font-black uppercase tracking-widest hover:opacity-90 active:scale-95 transition-all">Deploy</button>
+             <button onClick={addTask} className="bg-theme-primary px-4 py-2 rounded-xl text-white text-[10px] font-black uppercase tracking-widest hover:opacity-90 active:scale-95 transition-all">Provision</button>
           </div>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-6 pr-1 custom-scrollbar">
-        {/* ACTIVE SECTION */}
+        {/* CURRENT OBJECTIVES - Always Visible */}
         <div className="space-y-2">
           <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mb-3 px-2 flex items-center gap-2">
-            <Target size={12} className="text-theme-primary" /> Current Objectives
+            <Target size={12} className="text-theme-primary" /> Pending Backlog & Objectives
           </p>
-          {taskGroups.active.length === 0 ? (
+          {pendingTasks.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-slate-700 opacity-20">
               <Layers size={32} className="mb-2" />
-              <p className="text-[9px] font-black uppercase tracking-[0.2em]">All Systems Clear</p>
+              <p className="text-[9px] font-black uppercase tracking-[0.2em]">Queue Fully Processed</p>
             </div>
           ) : (
-            taskGroups.active.map(g => renderTask(g.task, g.sourceDate))
+            pendingTasks.map(item => renderTask(item.task, item.sourceDate))
           )}
         </div>
 
-        {/* ARCHIVE SECTION */}
+        {/* COMPLETED HISTORY - Toggleable */}
         {showArchive && (
           <div className="space-y-2 pt-4 border-t border-slate-800/50 animate-in fade-in slide-in-from-top-2 duration-500">
             <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mb-3 px-2 flex items-center gap-2">
-              <History size={12} /> Verified Output (Historical)
+              <History size={12} /> Verified Output Hub
             </p>
-            {taskGroups.archived.length === 0 ? (
-              <p className="text-center text-[9px] text-slate-700 uppercase font-black py-4">No archived data</p>
+            {completedTasks.length === 0 ? (
+              <p className="text-center text-[9px] text-slate-700 uppercase font-black py-4">No historical records</p>
             ) : (
-              taskGroups.archived.map(g => renderTask(g.task, g.sourceDate))
+              completedTasks.map(item => renderTask(item.task, item.sourceDate))
             )}
           </div>
         )}

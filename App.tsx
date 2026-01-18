@@ -148,51 +148,6 @@ const App: React.FC = () => {
 
   const isAdmin = state.currentUser?.role === 'admin';
 
-  const getCarriedTasks = useCallback((logs: Record<string, DayLog>): Task[] => {
-    const todayStr = getTodayStr();
-    const carried: Task[] = [];
-    const taskIds = new Set<string>();
-
-    // Scan ALL historical logs for pending tasks
-    Object.keys(logs).forEach(date => {
-      if (date === todayStr) return;
-      logs[date].tasks.forEach(t => {
-        if (t.status === 'pending' && !taskIds.has(t.id)) {
-          carried.push({
-            ...t,
-            timerStartedAt: undefined, // Reset timer for the new day
-            updatedAt: Date.now()
-          });
-          taskIds.add(t.id);
-        }
-      });
-    });
-    return carried;
-  }, []);
-
-  useEffect(() => {
-    if (!state.isAuthenticated || !state.currentUser || !isHydrated) return;
-
-    const todayStr = getTodayStr();
-    const userId = state.currentUser.id;
-    const userLogs = state.userLogs[userId] || {};
-
-    if (!userLogs[todayStr]) {
-      const pendingTasks = getCarriedTasks(userLogs);
-      if (pendingTasks.length > 0) {
-        setState(prev => {
-          const newUserLogs = { ...prev.userLogs };
-          if (!newUserLogs[userId]) newUserLogs[userId] = {};
-          newUserLogs[userId][todayStr] = {
-            date: todayStr,
-            tasks: pendingTasks
-          };
-          return { ...prev, userLogs: newUserLogs };
-        });
-      }
-    }
-  }, [state.isAuthenticated, state.currentUser?.id, isHydrated, getCarriedTasks]);
-
   const loadFromCloud = useCallback(async (isSilent = false) => {
     if (!state.config.sheetUrl || !state.isAuthenticated || !state.currentUser) return;
     
@@ -318,19 +273,15 @@ const App: React.FC = () => {
 
   const handleLogout = () => { setState(prev => ({ ...prev, isAuthenticated: false, currentUser: undefined })); setIsHydrated(false); };
   const updateConfig = (newConfig: Partial<AppState['config']>) => { setState(prev => ({ ...prev, config: { ...prev.config, ...newConfig } })); };
-  const updateTodayLog = (updater: (prev: DayLog) => DayLog) => {
+
+  const updateUserLog = (date: string, updater: (prev: DayLog) => DayLog) => {
     if (!state.currentUser) return;
-    const todayStr = getTodayStr();
     const userId = state.currentUser.id;
     setState(prev => {
       const userLogs = { ...prev.userLogs };
       if (!userLogs[userId]) userLogs[userId] = {};
-      if (!userLogs[userId][todayStr]) {
-        const carried = getCarriedTasks(userLogs[userId]);
-        userLogs[userId][todayStr] = { date: todayStr, tasks: carried };
-      }
-      const currentDayLog = userLogs[userId][todayStr];
-      userLogs[userId][todayStr] = updater(currentDayLog);
+      const currentDayLog = userLogs[userId][date] || { date, tasks: [] };
+      userLogs[userId][date] = updater(currentDayLog);
       return { ...prev, userLogs };
     });
   };
@@ -385,12 +336,7 @@ const App: React.FC = () => {
 
   const todayStr = getTodayStr();
   const currentUserLogs = state.userLogs[state.currentUser!.id] || {};
-  const todayLog: DayLog = useMemo(() => {
-     const log = currentUserLogs[todayStr];
-     if (log) return log;
-     const carried = getCarriedTasks(currentUserLogs);
-     return { date: todayStr, tasks: carried };
-  }, [currentUserLogs, todayStr, getCarriedTasks]);
+  const todayLog: DayLog = currentUserLogs[todayStr] || { date: todayStr, tasks: [] };
 
   const navItems = [
     { id: 'overview', icon: LayoutDashboard, label: 'Dash' },
@@ -530,14 +476,14 @@ const App: React.FC = () => {
                     <div className="lg:col-span-4"><InsightsPanel log={todayLog} logs={currentUserLogs} config={state.config} currentTime={currentTime} /></div>
                   </div>
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[700px]">
-                    <TaskPanel log={todayLog} onUpdate={updateTodayLog} historicalLogs={currentUserLogs} userRole={state.currentUser?.role} currentUserId={state.currentUser?.id} />
-                    <AttendancePanel log={todayLog} config={state.config} onUpdate={updateTodayLog} logs={currentUserLogs} state={state} />
+                    <TaskPanel log={todayLog} onUpdate={(updater) => updateUserLog(todayStr, updater)} historicalLogs={currentUserLogs} userRole={state.currentUser?.role} currentUserId={state.currentUser?.id} onDirectUpdate={updateUserLog} />
+                    <AttendancePanel log={todayLog} config={state.config} onUpdate={(updater) => updateUserLog(todayStr, updater)} logs={currentUserLogs} state={state} />
                   </div>
                 </div>
               )}
               {activeTab === 'nexus' && <div className="animate-in fade-in duration-700"><AIAssistant state={state} /></div>}
-              {activeTab === 'attendance' && <div className="animate-in fade-in duration-700"><AttendancePanel log={todayLog} config={state.config} onUpdate={updateTodayLog} logs={currentUserLogs} state={state} isFullWidth /></div>}
-              {activeTab === 'tasks' && <div className="animate-in fade-in duration-700"><TaskPanel log={todayLog} onUpdate={updateTodayLog} historicalLogs={currentUserLogs} isFullWidth userRole={state.currentUser?.role} currentUserId={state.currentUser?.id} /></div>}
+              {activeTab === 'attendance' && <div className="animate-in fade-in duration-700"><AttendancePanel log={todayLog} config={state.config} onUpdate={(updater) => updateUserLog(todayStr, updater)} logs={currentUserLogs} state={state} isFullWidth /></div>}
+              {activeTab === 'tasks' && <div className="animate-in fade-in duration-700"><TaskPanel log={todayLog} onUpdate={(updater) => updateUserLog(todayStr, updater)} historicalLogs={currentUserLogs} isFullWidth userRole={state.currentUser?.role} currentUserId={state.currentUser?.id} onDirectUpdate={updateUserLog} /></div>}
               {activeTab === 'reports' && <div className="animate-in fade-in duration-700"><ReportsPanel state={state} isFullWidth /></div>}
               {activeTab === 'activity' && isAdmin && <div className="animate-in fade-in duration-700"><UserActivityPanel state={state} /></div>}
               {activeTab === 'admin' && isAdmin && <div className="animate-in fade-in duration-700"><AdminPanel state={state} updateConfig={updateConfig} restoreFullState={restoreFullState} triggerManualSync={triggerManualSync} onAssignTask={assignTask} /></div>}
